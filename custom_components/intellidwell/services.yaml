@@ -1,0 +1,244 @@
+add_schedule:
+  name: Add Schedule
+  description: Add a new sprinkler watering schedule for a specific zone.
+  fields:
+    zone:
+      name: Zone
+      description: The zone number (1-10).
+      required: true
+      example: 1
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
+    days:
+      name: Active Days
+      description: Days of the week when this schedule should run.
+      required: true
+      example: ["Mon", "Wed", "Fri"]
+      selector:
+        select:
+          multiple: true
+          options:
+            - label: Monday
+              value: Mon
+            - label: Tuesday
+              value: Tue
+            - label: Wednesday
+              value: Wed
+            - label: Thursday
+              value: Thu
+            - label: Friday
+              value: Fri
+            - label: Saturday
+              value: Sat
+            - label: Sunday
+              value: Sun
+    on_time:
+      name: Start Time
+      description: Time when watering should begin (HH:MM in 24-hour format).
+      required: true
+      example: "06:00"
+      selector:
+        time: {}
+    off_time:
+      name: End Time
+      description: Time when watering should stop (HH:MM in 24-hour format). Optional if duration is set.
+      required: false
+      example: "06:20"
+      selector:
+        time: {}
+    duration_mins:
+      name: Duration (Minutes)
+      description: Duration of watering in minutes. Used to calculate end time if off_time is omitted.
+      required: false
+      example: 20
+      selector:
+        number:
+          min: 1
+          max: 180
+          unit_of_measurement: min
+          mode: box
+
+edit_schedule:
+  name: Edit Schedule
+  description: Edit an existing sprinkler schedule rule.
+  fields:
+    zone:
+      name: Zone
+      description: The zone number (1-10).
+      required: true
+      example: 1
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
+    schedule_id:
+      name: Schedule ID
+      description: The ID of the schedule to edit (e.g. sch_123456_7890).
+      required: true
+      example: "sch_834746108_4929"
+      selector:
+        text: {}
+    days:
+      name: Active Days
+      description: Days of the week when this schedule should run.
+      required: true
+      example: ["Tue", "Thu", "Sun"]
+      selector:
+        select:
+          multiple: true
+          options:
+            - label: Monday
+              value: Mon
+            - label: Tuesday
+              value: Tue
+            - label: Wednesday
+              value: Wed
+            - label: Thursday
+              value: Thu
+            - label: Friday
+              value: Fri
+            - label: Saturday
+              value: Sat
+            - label: Sunday
+              value: Sun
+    on_time:
+      name: Start Time
+      description: Start time (HH:MM in 24-hour format).
+      required: true
+      example: "05:00"
+      selector:
+        time: {}
+    off_time:
+      name: End Time
+      description: End time (HH:MM in 24-hour format). Optional if duration is set.
+      required: false
+      example: "05:30"
+      selector:
+        time: {}
+    duration_mins:
+      name: Duration (Minutes)
+      description: Duration in minutes. Used if off_time is omitted.
+      required: false
+      example: 30
+      selector:
+        number:
+          min: 1
+          max: 180
+          unit_of_measurement: min
+          mode: box
+
+delete_schedule:
+  name: Delete Schedule
+  description: Remove a scheduled watering rule from a zone.
+  fields:
+    zone:
+      name: Zone
+      description: The zone number (1-10).
+      required: true
+      example: 1
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
+    schedule_id:
+      name: Schedule ID
+      description: The ID of the schedule rule to delete.
+      required: true
+      example: "sch_834746108_4929"
+      selector:
+        text: {}
+
+toggle_schedule_item:
+  name: Toggle Single Schedule Rule
+  description: Enable or disable a specific schedule rule without deleting it.
+  fields:
+    zone:
+      name: Zone
+      description: The zone number (1-10).
+      required: true
+      example: 1
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
+    schedule_id:
+      name: Schedule ID
+      description: The ID of the schedule rule.
+      required: true
+      example: "sch_834746108_4929"
+      selector:
+        text: {}
+    enabled:
+      name: Enabled
+      description: Whether the rule should be active.
+      required: true
+      selector:
+        boolean: {}
+
+toggle_zone_schedule:
+  name: Toggle Zone Master Schedule
+  description: Enable or disable scheduled watering entirely for a zone.
+  fields:
+    zone:
+      name: Zone
+      description: The zone number (1-10).
+      required: true
+      example: 1
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
+    enabled:
+      name: Enabled
+      description: Whether the zone schedule is enabled or disabled.
+      required: true
+      selector:
+        boolean: {}
+
+start_timer:
+  name: Start Zone Timer
+  description: Turn on a sprinkler zone for a specific duration in minutes.
+  fields:
+    zone:
+      name: Zone
+      description: The zone number (1-10).
+      required: true
+      example: 1
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
+    duration_mins:
+      name: Duration (Minutes)
+      description: Watering duration in minutes.
+      required: true
+      example: 15
+      selector:
+        number:
+          min: 1
+          max: 180
+          unit_of_measurement: min
+          mode: box
+
+cancel_timer:
+  name: Cancel Timer / Stop Watering
+  description: Stop any active timed watering runs immediately.
+  fields:
+    zone:
+      name: Zone
+      description: Optional zone number (1-10).
+      required: false
+      example: 1
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
