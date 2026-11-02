@@ -3,6 +3,7 @@
   "name": "IntelliDwell Sprinkler Controller",
   "codeowners": ["@TannerNelson16"],
   "config_flow": true,
+  "dependencies": ["http"],
   "documentation": "https://github.com/TannerNelson16/ha-intellidwell",
   "integration_type": "device",
   "iot_class": "local_polling",

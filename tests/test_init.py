@@ -23,21 +23,18 @@ async def test_setup_and_unload_entry(hass: HomeAssistant) -> None:
         "queue": {},
     }
 
-    # Mock hass.http to verify async_register_static_paths is called
-    mock_http = MagicMock()
-    mock_http.async_register_static_paths = MagicMock()
-    hass.http = mock_http
-
     with patch(
         "custom_components.intellidwell.IntelliDwellClient.get_status",
         return_value=status_data,
-    ):
+    ), patch(
+        "homeassistant.components.http.HomeAssistantHTTP.async_register_static_paths"
+    ) as mock_register_static:
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
         # Check static path registered
-        mock_http.async_register_static_paths.assert_called_once()
-        static_configs = mock_http.async_register_static_paths.call_args[0][0]
+        mock_register_static.assert_called_once()
+        static_configs = mock_register_static.call_args[0][0]
         assert static_configs[0].url_path == "/intellidwell/intellidwell-scheduler-card.js"
 
         # Check services registered
