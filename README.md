@@ -13,9 +13,10 @@ Control your irrigation zones, monitor run-time countdowns, configure rain delay
 ## Features
 
 - 💧 **10 Zone Switches**: Instant manual on/off control for all 10 solenoid valves.
-- ⏱️ **Timer Sensors & Quick Timers**:
-  - Countdown sensor for each zone showing remaining watering time.
-  - Quick-start services (`intellidwell.start_timer`, `intellidwell.cancel_timer`) to run zones for a specified number of minutes.
+- ⏱️ **Timer & Status Sensors**:
+  - `Active Zone` sensor reporting which zone is watering or "Idle".
+  - `Watering Time Remaining` timestamp sensor for live countdown display in the Home Assistant UI.
+- ⚡ **Quick Timers & Services**: Run zones for a custom duration (`start_timer`) or stop active runs (`cancel_timer`).
 - 🌧️ **Rain Delay**: Set rain delay suspensions (0 to 5 days) via a native Number entity.
 - 📅 **Lovelace Scheduler Card**: Includes the `intellidwell-scheduler-card` frontend card for managing on-device recurring watering schedules.
 - 🔒 **100% Local Polling**: Talks directly to the controller on your local Wi-Fi network via HTTP REST API (`pyintellidwell`). No cloud dependencies.
@@ -48,59 +49,126 @@ Control your irrigation zones, monitor run-time countdowns, configure rain delay
 1. In Home Assistant, navigate to **Settings** > **Devices & Services**.
 2. Click **Add Integration** in the bottom right corner.
 3. Search for **IntelliDwell Sprinkler Controller**.
-4. Enter the device IP address (e.g. `192.168.1.150` or hostname `sprinklers.local`) and port (`80`).
+4. Enter the device IP address (e.g. `192.168.1.150` or hostname `sprinklers.local`).
 5. Click **Submit**. All 10 zones and configuration entities will be automatically created.
 
 ---
 
 ## Entities Provided
 
-| Entity Type | Identifier | Description |
+| Entity Type | Entity ID Pattern | Description |
 |---|---|---|
-| `switch` | `switch.zone_{1..10}_power` | Manual zone valve control |
-| `sensor` | `sensor.zone_{1..10}_timer_remaining` | Active timer countdown in minutes |
-| `number` | `number.rain_delay` | Active rain delay days (0–5) |
+| `switch` | `switch.intellidwell_sprinkler_controller_zone_{1..10}` | Individual zone valve control |
+| `sensor` | `sensor.intellidwell_sprinkler_controller_active_zone` | Currently active watering zone name (or `Idle`) |
+| `sensor` | `sensor.intellidwell_sprinkler_controller_watering_time_remaining` | Timestamp when current watering ends (live countdown) |
+| `number` | `number.intellidwell_sprinkler_controller_rain_delay` | Active rain delay days (0–5) |
+
+> [!NOTE]
+> If custom zone names are configured on the controller (e.g., "Front Lawn"), the default entity name will incorporate the zone label while preserving numerical ordering. Users can also rename entities in Home Assistant, and custom renames will be preserved.
 
 ---
 
 ## Services
 
-### `intellidwell.start_timer`
+IntelliDwell provides actions/services to manage watering runs and schedules. These services take parameters directly under `data:` (services do not require a `target: device_id`; if multiple controllers are present, you may optionally pass `config_entry_id`).
+
+### Timer Services
+
+#### `intellidwell.start_timer`
 Start watering a zone with an automatic shut-off timer.
 
 ```yaml
 action: intellidwell.start_timer
-target:
-  device_id: <intellidwell_device_id>
 data:
   zone: 1
-  minutes: 15
+  duration_mins: 15
 ```
 
-### `intellidwell.cancel_timer`
+#### `intellidwell.cancel_timer`
 Immediately cancel an active zone timer and turn off the valve.
 
 ```yaml
 action: intellidwell.cancel_timer
-target:
-  device_id: <intellidwell_device_id>
+data:
+  zone: 1 # Optional: cancels active run for this zone, or any active zone if omitted
+```
+
+---
+
+### Schedule Services
+
+#### `intellidwell.add_schedule`
+Add a recurring watering schedule rule for a zone.
+
+```yaml
+action: intellidwell.add_schedule
 data:
   zone: 1
+  days: ["Mon", "Wed", "Fri"]
+  on_time: "06:00"
+  duration_mins: 20 # Or specify off_time: "06:20"
+```
+
+#### `intellidwell.edit_schedule`
+Modify an existing schedule rule for a zone.
+
+```yaml
+action: intellidwell.edit_schedule
+data:
+  zone: 1
+  schedule_id: "sch_123456_7890"
+  days: ["Tue", "Thu", "Sat"]
+  on_time: "05:30"
+  duration_mins: 25 # Or specify off_time: "05:55"
+```
+
+#### `intellidwell.delete_schedule`
+Remove a scheduled watering rule from a zone.
+
+```yaml
+action: intellidwell.delete_schedule
+data:
+  zone: 1
+  schedule_id: "sch_123456_7890"
+```
+
+#### `intellidwell.toggle_schedule_item`
+Enable or disable an individual schedule rule without deleting it.
+
+```yaml
+action: intellidwell.toggle_schedule_item
+data:
+  zone: 1
+  schedule_id: "sch_123456_7890"
+  enabled: false
+```
+
+#### `intellidwell.toggle_zone_schedule`
+Enable or disable scheduled watering master control for a zone.
+
+```yaml
+action: intellidwell.toggle_zone_schedule
+data:
+  zone: 1
+  enabled: true
 ```
 
 ---
 
 ## Interactive Scheduler Card
 
-This integration includes the built-in `intellidwell-scheduler-card`. To add it to your dashboard:
+The integration automatically serves and registers the frontend `intellidwell-scheduler-card`. The card discovers all configured sprinkler zones automatically without needing device IDs.
 
-1. Edit your Lovelace dashboard.
-2. Add a **Manual** card.
-3. Enter:
+To add the card to your dashboard:
+
+1. Edit your Lovelace dashboard and click **Add Card**.
+2. Select **IntelliDwell Sprinkler Scheduler Card** from the card picker (or choose **Manual**).
+3. Use the visual editor or enter the following YAML:
 
 ```yaml
 type: custom:intellidwell-scheduler-card
-device_id: <YOUR_INTELLIDWELL_DEVICE_ID>
+title: Sprinkler Schedules # Optional
+show_zone_filter: true # Optional
 ```
 
 ---

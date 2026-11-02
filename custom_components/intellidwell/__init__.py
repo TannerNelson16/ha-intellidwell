@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from pathlib import Path
 import types
 from typing import Any
 
@@ -10,6 +11,7 @@ from pyintellidwell import (
     IntelliDwellInvalidResponseError,
 )
 
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -95,20 +97,47 @@ def _zone_to_pin(zone_val: Any) -> int:
     raise HomeAssistantError(f"Zone must be between 1 and 10, got {zone_val}")
 
 
+CARD_URL = "/intellidwell/intellidwell-scheduler-card.js"
+DATA_STATIC_REGISTERED = f"{DOMAIN}_static_registered"
+
+
 async def _async_ensure_card_registered(hass: HomeAssistant) -> None:
-    """Ensure intellidwell-scheduler-card is registered in Lovelace resources."""
-    card_url = "/local/intellidwell-scheduler-card.js"
+    """Serve and register intellidwell-scheduler-card in Lovelace resources."""
+    card_path = Path(__file__).parent / "www" / "intellidwell-scheduler-card.js"
+
+    # Register static path with Home Assistant HTTP component once
+    if DATA_STATIC_REGISTERED not in hass.data:
+        if hasattr(hass, "http") and hass.http:
+            try:
+                await hass.http.async_register_static_paths([
+                    StaticPathConfig(CARD_URL, str(card_path), True)
+                ])
+                hass.data[DATA_STATIC_REGISTERED] = True
+            except Exception as err:
+                _LOGGER.debug("Could not register static path for card: %s", err)
+
+    # Register card URL in Lovelace resources
     try:
         lovelace = hass.data.get("lovelace")
         if lovelace and hasattr(lovelace, "resources"):
             resources = lovelace.resources
             if hasattr(resources, "loaded") and resources.loaded:
                 for item in resources.async_items():
-                    if item.get("url", "").startswith(card_url):
+                    url = item.get("url", "")
+                    if url.startswith(CARD_URL):
                         return
+                    if url.startswith("/local/intellidwell-scheduler-card.js"):
+                        try:
+                            await resources.async_update_item(item["id"], {
+                                "res_type": "module",
+                                "url": CARD_URL,
+                            })
+                            return
+                        except Exception:
+                            pass
                 await resources.async_create_item({
                     "res_type": "module",
-                    "url": f"{card_url}?v=1.0.0",
+                    "url": CARD_URL,
                 })
     except Exception as err:
         _LOGGER.debug("Could not auto-register lovelace resource: %s", err)

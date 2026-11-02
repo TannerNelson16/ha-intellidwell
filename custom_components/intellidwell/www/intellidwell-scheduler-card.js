@@ -13,6 +13,16 @@ const DAYS_OF_WEEK = [
   { short: "Sun", full: "Sunday", letter: "S" },
 ];
 
+function escapeHtml(str) {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 class IntelliDwellSchedulerCard extends HTMLElement {
   constructor() {
     super();
@@ -679,7 +689,7 @@ class IntelliDwellSchedulerCard extends HTMLElement {
         <div class="header">
           <div class="header-title">
             <ha-icon class="header-icon" icon="mdi:sprinkler-variant"></ha-icon>
-            <span>${this._config.title}</span>
+            <span>${escapeHtml(this._config.title)}</span>
           </div>
           <button class="btn-add" id="btnHeaderAdd">
             <ha-icon icon="mdi:plus"></ha-icon>
@@ -694,7 +704,7 @@ class IntelliDwellSchedulerCard extends HTMLElement {
               <div class="watering-badge">
                 <span class="pulsing-drop">💧</span>
                 <div class="watering-text">
-                  <span class="watering-title">${activeZone.name} is Watering</span>
+                  <span class="watering-title">${escapeHtml(activeZone.name)} is Watering</span>
                   <span class="watering-countdown" id="liveCountdown">${
                     activeZone.remaining > 0
                       ? `${this._formatRemaining(activeZone.remaining)} remaining`
@@ -702,7 +712,7 @@ class IntelliDwellSchedulerCard extends HTMLElement {
                   }</span>
                 </div>
               </div>
-              <button class="btn-stop-watering" id="btnActiveStop" data-zone="${activeZone.index}">
+              <button class="btn-stop-watering" id="btnActiveStop" data-zone="${escapeHtml(activeZone.index)}">
                 <ha-icon icon="mdi:stop-circle-outline"></ha-icon> Stop
               </button>
             </div>
@@ -738,8 +748,8 @@ class IntelliDwellSchedulerCard extends HTMLElement {
       const isActive = String(this._selectedZoneFilter) === String(zIdx);
 
       pills += `
-        <div class="filter-pill ${isActive ? "active" : ""}" data-filter="${zIdx}">
-          ${zName} (${schedCount})
+        <div class="filter-pill ${isActive ? "active" : ""}" data-filter="${escapeHtml(zIdx)}">
+          ${escapeHtml(zName)} (${schedCount})
         </div>
       `;
     }
@@ -772,20 +782,20 @@ class IntelliDwellSchedulerCard extends HTMLElement {
           <div class="zone-group">
             <div class="zone-header">
               <div class="zone-name-wrap">
-                <span class="zone-badge">#${zIdx}</span>
-                <span class="zone-title">${zName}</span>
+                <span class="zone-badge">#${escapeHtml(zIdx)}</span>
+                <span class="zone-title">${escapeHtml(zName)}</span>
               </div>
               <div class="zone-switch-wrap">
                 <button type="button" class="btn-zone-timer ${isWatering ? "active" : ""}" 
-                  data-zone="${zIdx}" 
-                  data-zone-name="${zName}"
+                  data-zone="${escapeHtml(zIdx)}" 
+                  data-zone-name="${escapeHtml(zName)}"
                   data-watering="${isWatering ? "true" : "false"}"
                   title="${isWatering ? "Stop watering" : "Start quick watering timer"}">
                   <ha-icon icon="${isWatering ? "mdi:stop-circle" : "mdi:timer-play-outline"}"></ha-icon>
                   <span>${isWatering ? (remaining > 0 ? `${Math.ceil(remaining / 60)}m left` : "Stop") : "Timer"}</span>
                 </button>
-                <label class="toggle-rule" title="Toggle entire schedule for ${zName}">
-                  <input type="checkbox" class="zone-master-toggle" data-zone="${zIdx}" ${
+                <label class="toggle-rule" title="Toggle entire schedule for ${escapeHtml(zName)}">
+                  <input type="checkbox" class="zone-master-toggle" data-zone="${escapeHtml(zIdx)}" ${
           isMasterOn ? "checked" : ""
         }>
                   <span class="toggle-slider"></span>
@@ -796,7 +806,7 @@ class IntelliDwellSchedulerCard extends HTMLElement {
             <div class="schedules-list">
               ${
                 schedules.length === 0
-                  ? `<div class="empty-zone" data-add-zone="${zIdx}">+ Add a scheduled run for ${zName}</div>`
+                  ? `<div class="empty-zone" data-add-zone="${escapeHtml(zIdx)}">+ Add a scheduled run for ${escapeHtml(zName)}</div>`
                   : schedules
                       .map((sched) => {
                         const duration = this._calculateDurationMinutes(
@@ -807,7 +817,7 @@ class IntelliDwellSchedulerCard extends HTMLElement {
                           <div class="schedule-row ${sched.enabled === false ? "disabled" : ""}">
                             <div class="rule-info">
                               <div class="time-badge">
-                                <span>${sched.onTime} – ${sched.offTime}</span>
+                                <span>${escapeHtml(sched.onTime)} – ${escapeHtml(sched.offTime)}</span>
                                 <span class="duration-chip">${duration} min</span>
                               </div>
                               <div class="days-badges">
@@ -821,24 +831,24 @@ class IntelliDwellSchedulerCard extends HTMLElement {
                             <div class="rule-actions">
                               <label class="toggle-rule" title="Enable/Disable rule">
                                 <input type="checkbox" class="schedule-item-toggle"
-                                  data-zone="${zIdx}"
-                                  data-sched-id="${sched.id}"
+                                  data-zone="${escapeHtml(zIdx)}"
+                                  data-sched-id="${escapeHtml(sched.id)}"
                                   ${sched.enabled !== false ? "checked" : ""}>
                                 <span class="toggle-slider"></span>
                               </label>
 
                               <button class="icon-btn edit-btn" title="Edit schedule"
-                                data-zone="${zIdx}"
-                                data-sched-id="${sched.id}"
-                                data-on="${sched.onTime}"
-                                data-off="${sched.offTime}"
-                                data-days='${JSON.stringify(sched.days || [])}'>
+                                data-zone="${escapeHtml(zIdx)}"
+                                data-sched-id="${escapeHtml(sched.id)}"
+                                data-on="${escapeHtml(sched.onTime)}"
+                                data-off="${escapeHtml(sched.offTime)}"
+                                data-days='${escapeHtml(JSON.stringify(sched.days || []))}'>
                                 <ha-icon icon="mdi:pencil-outline"></ha-icon>
                               </button>
 
                               <button class="icon-btn delete delete-btn" title="Delete schedule"
-                                data-zone="${zIdx}"
-                                data-sched-id="${sched.id}">
+                                data-zone="${escapeHtml(zIdx)}"
+                                data-sched-id="${escapeHtml(sched.id)}">
                                 <ha-icon icon="mdi:trash-can-outline"></ha-icon>
                               </button>
                             </div>
@@ -866,7 +876,7 @@ class IntelliDwellSchedulerCard extends HTMLElement {
     return `
       <div class="modal-overlay" id="modalOverlay">
         <div class="modal-dialog">
-          <div class="modal-title">${title}</div>
+          <div class="modal-title">${escapeHtml(title)}</div>
 
           <div class="form-group">
             <label class="form-label">Zone</label>
@@ -875,7 +885,7 @@ class IntelliDwellSchedulerCard extends HTMLElement {
                 .map((e) => {
                   const z = e.attributes.zone_index || 1;
                   const name = e.attributes.zone_name || `Zone ${z}`;
-                  return `<option value="${z}" ${String(z) === String(zoneIndex) ? "selected" : ""}>${z}: ${name}</option>`;
+                  return `<option value="${escapeHtml(z)}" ${String(z) === String(zoneIndex) ? "selected" : ""}>${escapeHtml(z)}: ${escapeHtml(name)}</option>`;
                 })
                 .join("")}
             </select>
@@ -886,7 +896,7 @@ class IntelliDwellSchedulerCard extends HTMLElement {
             <div class="days-selector">
               ${DAYS_OF_WEEK.map((d) => {
                 const sel = days.includes(d.short);
-                return `<button type="button" class="day-toggle-btn ${sel ? "selected" : ""}" data-day="${d.short}">${d.short}</button>`;
+                return `<button type="button" class="day-toggle-btn ${sel ? "selected" : ""}" data-day="${escapeHtml(d.short)}">${escapeHtml(d.short)}</button>`;
               }).join("")}
             </div>
             <div class="quick-days-row">
@@ -899,12 +909,12 @@ class IntelliDwellSchedulerCard extends HTMLElement {
 
           <div class="form-group">
             <label class="form-label">Start Time</label>
-            <input type="time" class="form-input" id="modalStartTime" value="${onTime || "06:00"}">
+            <input type="time" class="form-input" id="modalStartTime" value="${escapeHtml(onTime || "06:00")}">
           </div>
 
           <div class="form-group">
             <label class="form-label">Duration (Minutes)</label>
-            <input type="number" min="1" max="240" class="form-input" id="modalDuration" value="${durationMins || 20}">
+            <input type="number" min="1" max="240" class="form-input" id="modalDuration" value="${escapeHtml(durationMins || 20)}">
             <div class="duration-chips">
               ${[5, 10, 15, 20, 30, 45, 60]
                 .map((m) => {
@@ -914,7 +924,7 @@ class IntelliDwellSchedulerCard extends HTMLElement {
                 .join("")}
             </div>
             <div class="end-time-preview" id="endTimePreview">
-              Watering ends at: ${calculatedOff || "06:20"}
+              Watering ends at: ${escapeHtml(calculatedOff || "06:20")}
             </div>
           </div>
 
@@ -935,7 +945,7 @@ class IntelliDwellSchedulerCard extends HTMLElement {
     return `
       <div class="modal-overlay" id="timerModalOverlay">
         <div class="modal-dialog">
-          <div class="modal-title">⏱ Quick Timer: ${zoneName}</div>
+          <div class="modal-title">⏱ Quick Timer: ${escapeHtml(zoneName)}</div>
 
           <div class="form-group">
             <label class="form-label">Watering Duration (Minutes)</label>
@@ -950,9 +960,9 @@ class IntelliDwellSchedulerCard extends HTMLElement {
                 )
                 .join("")}
             </div>
-            <input type="number" min="1" max="180" class="form-input" id="timerDurationInput" value="${
+            <input type="number" min="1" max="180" class="form-input" id="timerDurationInput" value="${escapeHtml(
               durationMins || 15
-            }">
+            )}">
           </div>
 
           <div class="modal-actions">
@@ -1350,7 +1360,7 @@ class IntelliDwellSchedulerCardEditor extends HTMLElement {
       <div style="display: flex; flex-direction: column; gap: 14px; padding: 12px 0; font-family: inherit;">
         <div>
           <label style="display: block; font-weight: 600; font-size: 0.9rem; margin-bottom: 6px; color: var(--primary-text-color, #fff);">Card Title</label>
-          <input type="text" id="editTitle" value="${this._config.title || "Sprinkler Schedules"}" 
+          <input type="text" id="editTitle" value="${escapeHtml(this._config.title || "Sprinkler Schedules")}" 
             style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(255,255,255,0.2)); background: rgba(255,255,255,0.05); color: var(--primary-text-color, #fff); box-sizing: border-box; outline: none; font-size: 0.95rem;">
         </div>
         <div style="display: flex; align-items: center; gap: 10px;">
@@ -1388,10 +1398,10 @@ window.customCards.push({
   name: "IntelliDwell Sprinkler Scheduler Card",
   description: "Interactive card to view, add, edit, and toggle sprinkler schedules for each zone.",
   preview: true,
-  documentationURL: "http://192.168.1.125/scheduler",
+  documentationURL: "https://github.com/TannerNelson16/ha-intellidwell",
 });
 console.info(
-  "%c INTELLIDWELL-SCHEDULER-CARD %c v1.0.3 Loaded ",
+  "%c INTELLIDWELL-SCHEDULER-CARD %c v1.0.2 Loaded ",
   "color: white; background: #3b82f6; font-weight: 700;",
   "color: #3b82f6; background: #1e293b; font-weight: 700;"
 );

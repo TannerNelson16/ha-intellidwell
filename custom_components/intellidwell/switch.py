@@ -9,9 +9,11 @@ from pyintellidwell import IntelliDwellConnectionError
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+try:
+    from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+except ImportError:
+    from homeassistant.helpers.entity_platform import AddEntitiesCallback as AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
@@ -88,18 +90,8 @@ class IntelliDwellZoneSwitch(
         return f"Zone {z_num}: {raw_name}"
 
     def _sync_zone_name(self) -> None:
-        """Synchronize zone name with entity registry."""
-        new_name = self._get_zone_name()
-        self._attr_name = new_name
-        if self.registry_entry:
-            ent_reg = er.async_get(self.hass)
-            updates: dict[str, Any] = {}
-            if self.registry_entry.original_name != new_name:
-                updates["original_name"] = new_name
-            if self.registry_entry.name is not None and self.registry_entry.name != new_name:
-                updates["name"] = None
-            if updates:
-                ent_reg.async_update_entity(self.entity_id, **updates)
+        """Synchronize zone name."""
+        self._attr_name = self._get_zone_name()
 
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added to hass."""

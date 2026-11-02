@@ -4,11 +4,11 @@ from unittest.mock import patch
 from pyintellidwell import IntelliDwellConnectionError
 
 from homeassistant import config_entries, data_entry_flow
-from homeassistant.components.intellidwell.const import DOMAIN
+from custom_components.intellidwell.const import DOMAIN
 from homeassistant.const import CONF_HOST
 from homeassistant.core import HomeAssistant
 
-from tests.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 async def test_flow_user_init(hass: HomeAssistant) -> None:
     """Test user setup flow initiates correctly."""
@@ -25,10 +25,10 @@ async def test_flow_user_success(hass: HomeAssistant) -> None:
     )
     
     with patch(
-        "homeassistant.components.intellidwell.config_flow.IntelliDwellClient.get_status",
+        "custom_components.intellidwell.config_flow.IntelliDwellClient.get_status",
         return_value={"relay_states": [0] * 10},
     ), patch(
-        "homeassistant.components.intellidwell.async_setup_entry",
+        "custom_components.intellidwell.async_setup_entry",
         return_value=True,
     ) as mock_setup_entry:
         result2 = await hass.config_entries.flow.async_configure(
@@ -49,7 +49,7 @@ async def test_flow_user_cannot_connect(hass: HomeAssistant) -> None:
     )
 
     with patch(
-        "homeassistant.components.intellidwell.config_flow.IntelliDwellClient.get_status",
+        "custom_components.intellidwell.config_flow.IntelliDwellClient.get_status",
         side_effect=IntelliDwellConnectionError,
     ):
         result2 = await hass.config_entries.flow.async_configure(
@@ -92,7 +92,7 @@ async def test_flow_user_unknown_error(hass: HomeAssistant) -> None:
     )
 
     with patch(
-        "homeassistant.components.intellidwell.config_flow.IntelliDwellClient.get_status",
+        "custom_components.intellidwell.config_flow.IntelliDwellClient.get_status",
         side_effect=Exception("Generic error"),
     ):
         result2 = await hass.config_entries.flow.async_configure(
