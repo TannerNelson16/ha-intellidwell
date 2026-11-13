@@ -1,0 +1,49 @@
+blueprint:
+  name: "IntelliDwell - Smart Rain Delay from Local Weather"
+  description: >
+    Automatically apply an instant rain delay to your IntelliDwell Sprinkler Controller when a local weather station or rain sensor (such as Ambient Weather, Tempest, Netatmo, Davis, or Ecowitt) records rainfall exceeding your threshold.
+  domain: automation
+  input:
+    rain_sensor:
+      name: Rain Sensor / Daily Precipitation Entity
+      description: Select the entity reporting today's rainfall in inches.
+      selector:
+        entity:
+          domain: sensor
+          device_class: precipitation
+    rain_threshold:
+      name: Rain Threshold (Inches)
+      description: Minimum rainfall today to trigger a suspension of scheduled irrigation.
+      default: 0.25
+      selector:
+        number:
+          min: 0.05
+          max: 5.0
+          step: 0.05
+          unit_of_measurement: in
+          mode: box
+    delay_days:
+      name: Rain Delay Duration (Days)
+      description: Number of days to suspend watering when rainfall exceeds the threshold.
+      default: 2
+      selector:
+        number:
+          min: 1
+          max: 5
+          step: 1
+          unit_of_measurement: d
+          mode: box
+
+trigger:
+  - platform: numeric_state
+    entity_id: !input rain_sensor
+    above: !input rain_threshold
+
+action:
+  - action: intellidwell.push_weather
+    data:
+      rain_today: "{{ states(trigger.entity_id) | float(0) }}"
+      source: "{{ state_attr(trigger.entity_id, 'friendly_name') or 'Local Weather Station' }}"
+      delay_days: !input delay_days
+
+mode: single

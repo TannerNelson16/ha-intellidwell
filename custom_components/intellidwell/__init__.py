@@ -33,6 +33,7 @@ SERVICE_TOGGLE_SCHEDULE_ITEM = "toggle_schedule_item"
 SERVICE_TOGGLE_ZONE_SCHEDULE = "toggle_zone_schedule"
 SERVICE_START_TIMER = "start_timer"
 SERVICE_CANCEL_TIMER = "cancel_timer"
+SERVICE_PUSH_WEATHER = "push_weather"
 
 
 async def _safe_client_request(self: IntelliDwellClient, method: str, path: str, **kwargs: Any) -> Any:
@@ -298,6 +299,39 @@ async def async_setup_entry(
 
         await coord.async_request_refresh()
 
+    async def async_handle_push_weather(call: ServiceCall) -> None:
+        """Handle pushing weather / rain data to controller."""
+        coord = _get_coordinator(hass, call)
+        rain_today = float(call.data.get("rain_today", 0.0))
+        source = str(call.data.get("source", "Home Assistant"))
+        delay_days = int(call.data.get("delay_days", 0))
+        temp = call.data.get("temp")
+        if temp is not None:
+            temp = float(temp)
+        try:
+            if hasattr(coord.client, "push_weather"):
+                await coord.client.push_weather(
+                    rain_today_in=rain_today,
+                    source=source,
+                    delay_days=delay_days,
+                    temp=temp
+                )
+            else:
+                payload: dict[str, Any] = {
+                    "rain_today_in": rain_today,
+                    "source": source,
+                    "delay_days": delay_days,
+                }
+                if temp is not None:
+                    payload["temp"] = temp
+                await coord.client._request("POST", "api/weather", json=payload)
+        except Exception as err:
+            raise HomeAssistantError(f"Failed to push weather data: {err}") from err
+
+        if delay_days > 0:
+            coord.mark_rain_delay_dirty()
+        await coord.async_request_refresh()
+
     # Register services once
     if not hass.services.has_service(DOMAIN, SERVICE_ADD_SCHEDULE):
         hass.services.async_register(DOMAIN, SERVICE_ADD_SCHEDULE, async_handle_add_schedule)
@@ -307,6 +341,7 @@ async def async_setup_entry(
         hass.services.async_register(DOMAIN, SERVICE_TOGGLE_ZONE_SCHEDULE, async_handle_toggle_zone_schedule)
         hass.services.async_register(DOMAIN, SERVICE_START_TIMER, async_handle_start_timer)
         hass.services.async_register(DOMAIN, SERVICE_CANCEL_TIMER, async_handle_cancel_timer)
+        hass.services.async_register(DOMAIN, SERVICE_PUSH_WEATHER, async_handle_push_weather)
 
     return True
 

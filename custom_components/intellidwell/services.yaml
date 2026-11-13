@@ -242,3 +242,36 @@ cancel_timer:
           min: 1
           max: 10
           mode: box
+
+push_weather:
+  name: Push Weather Data
+  description: Push local weather station or rain sensor data directly to the controller via HTTP, optionally applying an instant rain delay.
+  fields:
+    rain_today:
+      name: Rain Today
+      description: Total rain observed today in inches.
+      required: true
+      example: 0.35
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 0.01
+          mode: box
+    source:
+      name: Weather Station Name
+      description: Friendly name of the weather station or source (e.g. Ambient Weather PWS, Davis Vantage, Personal PWS).
+      required: false
+      default: "Home Assistant"
+      selector:
+        text: {}
+    delay_days:
+      name: Rain Delay Days
+      description: Number of days to suspend watering (0 to 5 days). If 0, only updates the weather display without delaying.
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 5
+          mode: box
