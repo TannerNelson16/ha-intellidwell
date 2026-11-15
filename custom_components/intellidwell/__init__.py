@@ -81,6 +81,24 @@ def _get_coordinator(hass: HomeAssistant, call: ServiceCall) -> IntelliDwellCoor
     if entry_id and entry_id in domain_data:
         return domain_data[entry_id]
 
+    device_id = call.data.get("device_id")
+    if device_id:
+        from homeassistant.helpers import device_registry as dr
+        dev_reg = dr.async_get(hass)
+        device = dev_reg.async_get(device_id)
+        if device:
+            for c_entry in device.config_entries:
+                if c_entry in domain_data:
+                    return domain_data[c_entry]
+
+    entity_id = call.data.get("entity_id")
+    if entity_id:
+        from homeassistant.helpers import entity_registry as er
+        ent_reg = er.async_get(hass)
+        ent = ent_reg.async_get(entity_id)
+        if ent and ent.config_entry_id in domain_data:
+            return domain_data[ent.config_entry_id]
+
     return next(iter(domain_data.values()))
 
 
@@ -306,8 +324,13 @@ async def async_setup_entry(
         source = str(call.data.get("source", "Home Assistant"))
         delay_days = int(call.data.get("delay_days", 0))
         temp = call.data.get("temp")
-        if temp is not None:
-            temp = float(temp)
+        if temp is not None and str(temp).strip() != "":
+            try:
+                temp = float(temp)
+            except (ValueError, TypeError):
+                temp = None
+        else:
+            temp = None
         try:
             if hasattr(coord.client, "push_weather"):
                 await coord.client.push_weather(

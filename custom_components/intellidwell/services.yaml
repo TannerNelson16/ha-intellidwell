@@ -275,3 +275,12 @@ push_weather:
           min: 0
           max: 5
           mode: box
+    temp:
+      name: Current Temperature
+      description: Optional current outdoor temperature in degrees Fahrenheit or Celsius.
+      required: false
+      selector:
+        number:
+          min: -50
+          max: 150
+          mode: box

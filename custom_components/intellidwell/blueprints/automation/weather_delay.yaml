@@ -1,49 +1,195 @@
 blueprint:
-  name: "IntelliDwell - Smart Rain Delay from Local Weather"
-  description: >
-    Automatically apply an instant rain delay to your IntelliDwell Sprinkler Controller when a local weather station or rain sensor (such as Ambient Weather, Tempest, Netatmo, Davis, or Ecowitt) records rainfall exceeding your threshold.
+  name: "IntelliDwell - Smart Weather Rain Delay (Local / PWS)"
+  description: >-
+    Automatically pushes live rainfall & weather station data to your IntelliDwell Sprinkler Controller
+    over local LAN (HTTP). Dynamically calculates and applies rain delays when precipitation
+    meets your thresholds, or suspends watering pre-emptively on high-probability rain forecasts.
+    Works with ANY weather station (Ambient Weather Network, Ecowitt, Tempest, Davis, Weather.com)
+    or local rain sensor without cloud dependency.
   domain: automation
   input:
     rain_sensor:
       name: Rain Sensor / Daily Precipitation Entity
-      description: Select the entity reporting today's rainfall in inches.
+      description: Select the entity reporting today's rainfall in inches (e.g., sensor.little_circus_daily_rain or local rain gauge).
       selector:
         entity:
           domain: sensor
-          device_class: precipitation
+    temp_sensor:
+      name: Temperature Sensor (Optional)
+      description: Optional outdoor temperature sensor (e.g., sensor.little_circus_temperature) to push live temperature to the controller.
+      default: ""
+      selector:
+        entity:
+          domain: sensor
+    source_name:
+      name: Weather Station Friendly Name (Optional)
+      description: Name shown on the controller display. If left blank, the sensor's name is used automatically.
+      default: ""
+      selector:
+        text: {}
     rain_threshold:
-      name: Rain Threshold (Inches)
-      description: Minimum rainfall today to trigger a suspension of scheduled irrigation.
+      name: Standard Rain Threshold (Inches)
+      description: Minimum rainfall today to trigger a standard rain delay.
       default: 0.25
       selector:
         number:
-          min: 0.05
+          min: 0.01
           max: 5.0
-          step: 0.05
-          unit_of_measurement: in
+          step: 0.01
+          unit_of_measurement: "in"
           mode: box
     delay_days:
-      name: Rain Delay Duration (Days)
-      description: Number of days to suspend watering when rainfall exceeds the threshold.
+      name: Standard Delay Duration (Days)
+      description: Number of days to delay watering when the standard rain threshold is met.
       default: 2
       selector:
         number:
           min: 1
           max: 5
-          step: 1
-          unit_of_measurement: d
+          unit_of_measurement: "days"
           mode: box
+    heavy_rain_threshold:
+      name: Heavy Rain Threshold (Inches)
+      description: Rainfall today that triggers an extended rain delay.
+      default: 0.50
+      selector:
+        number:
+          min: 0.05
+          max: 10.0
+          step: 0.05
+          unit_of_measurement: "in"
+          mode: box
+    heavy_delay_days:
+      name: Heavy Rain Delay Duration (Days)
+      description: Number of days to delay watering when heavy rain threshold is met.
+      default: 3
+      selector:
+        number:
+          min: 1
+          max: 5
+          unit_of_measurement: "days"
+          mode: box
+    weather_entity:
+      name: Forecast Weather Entity (Optional)
+      description: Weather entity to evaluate upcoming precipitation chance before watering starts.
+      default: ""
+      selector:
+        entity:
+          domain: weather
+    forecast_pop_threshold:
+      name: Forecast Rain Chance Threshold (POP %)
+      description: Minimum precipitation probability in the forecast to trigger a pre-emptive 1-day delay.
+      default: 70
+      selector:
+        number:
+          min: 20
+          max: 100
+          step: 5
+          unit_of_measurement: "%"
+          mode: slider
+    check_time:
+      name: Daily Schedule Evaluation Time
+      description: Time each morning to evaluate conditions before morning watering runs.
+      default: "05:00:00"
+      selector:
+        time: {}
+    stop_active_watering:
+      name: Stop Active Watering Immediately on Rain
+      description: Cancel running zones if rainfall reaches or exceeds the threshold while watering is in progress.
+      default: true
+      selector:
+        boolean: {}
+    notify_device:
+      name: Mobile Device to Notify (Optional)
+      description: Optional mobile device to receive a push notification when a rain delay is applied.
+      default: ""
+      selector:
+        device:
+          integration: mobile_app
+
+mode: restart
+max_exceeded: silent
 
 trigger:
-  - platform: numeric_state
+  # 1. Daily morning pre-run evaluation
+  - platform: time
+    at: !input check_time
+    id: daily_check
+
+  # 2. Immediate real-time rain trigger whenever rain sensor state updates
+  - platform: state
     entity_id: !input rain_sensor
-    above: !input rain_threshold
+    id: rain_updated
+
+variables:
+  rain_sensor_ent: !input rain_sensor
+  temp_sensor_ent: !input temp_sensor
+  custom_source: !input source_name
+  rain_thresh: !input rain_threshold
+  heavy_thresh: !input heavy_rain_threshold
+  std_days: !input delay_days
+  hvy_days: !input heavy_delay_days
+  weather_ent: !input weather_entity
+  pop_thresh: !input forecast_pop_threshold
+  stop_watering: !input stop_active_watering
+  notify_dev: !input notify_device
+
+  current_rain: "{{ states(rain_sensor_ent) | float(0.0) }}"
+  current_temp: "{{ states(temp_sensor_ent) | float if temp_sensor_ent != '' and states(temp_sensor_ent) not in ['unknown', 'unavailable'] else None }}"
+  station_label: >-
+    {% if custom_source != '' %}
+      {{ custom_source }}
+    {% elif state_attr(rain_sensor_ent, 'friendly_name') %}
+      {{ state_attr(rain_sensor_ent, 'friendly_name') }}
+    {% else %}
+      Home Assistant PWS
+    {% endif %}
+
+  forecast_list: "{{ state_attr(weather_ent, 'forecast') if weather_ent != '' else [] }}"
+  today_pop: >-
+    {% if forecast_list and forecast_list | length > 0 %}
+      {{ forecast_list[0].precipitation_probability | default(0) | int(0) }}
+    {% else %}
+      0
+    {% endif %}
+
+  calculated_delay: >-
+    {% if current_rain >= heavy_thresh %}
+      {{ hvy_days }}
+    {% elif current_rain >= rain_thresh %}
+      {{ std_days }}
+    {% elif weather_ent != '' and today_pop >= pop_thresh %}
+      1
+    {% else %}
+      0
+    {% endif %}
 
 action:
+  # Always push current weather/rain data to controller so the web UI stays current
   - action: intellidwell.push_weather
     data:
-      rain_today: "{{ states(trigger.entity_id) | float(0) }}"
-      source: "{{ state_attr(trigger.entity_id, 'friendly_name') or 'Local Weather Station' }}"
-      delay_days: !input delay_days
+      rain_today: "{{ current_rain }}"
+      source: "{{ station_label }}"
+      delay_days: "{{ calculated_delay | int }}"
+      temp: "{{ current_temp }}"
 
-mode: single
+  # Stop active watering if raining and enabled
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ stop_watering and current_rain >= rain_thresh }}"
+        sequence:
+          - action: intellidwell.cancel_timer
+            continue_on_error: true
+
+  # Push mobile notification when rain delay is applied
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ notify_dev != '' and (calculated_delay | int) > 0 }}"
+        sequence:
+          - domain: mobile_app
+            type: notify
+            device_id: !input notify_device
+            title: "🌧️ IntelliDwell Rain Delay Active"
+            message: "Sprinklers delayed by {{ calculated_delay }} day(s) via {{ station_label }} (Observed: {{ current_rain }}\")."
