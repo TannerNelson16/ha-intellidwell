@@ -1,3 +1,25 @@
 """Constants for the IntelliDwell Sprinkler Controller integration."""
 
 DOMAIN = "intellidwell"
+
+CONF_WEATHER_PUSH_ENABLED = "weather_push_enabled"
+CONF_RAIN_SENSOR = "rain_sensor"
+CONF_TEMP_SENSOR = "temp_sensor"
+CONF_WEATHER_ENTITY = "weather_entity"
+CONF_SOURCE_NAME = "source_name"
+CONF_AUTO_RAIN_DELAY = "auto_rain_delay"
+CONF_RAIN_THRESHOLD = "rain_threshold"
+CONF_DELAY_DAYS = "delay_days"
+CONF_HEAVY_RAIN_THRESHOLD = "heavy_rain_threshold"
+CONF_HEAVY_DELAY_DAYS = "heavy_delay_days"
+CONF_FORECAST_POP_THRESHOLD = "forecast_pop_threshold"
+CONF_STOP_ACTIVE_WATERING = "stop_active_watering"
+
+DEFAULT_WEATHER_PUSH_ENABLED = True
+DEFAULT_AUTO_RAIN_DELAY = True
+DEFAULT_RAIN_THRESHOLD = 0.25
+DEFAULT_DELAY_DAYS = 2
+DEFAULT_HEAVY_RAIN_THRESHOLD = 0.50
+DEFAULT_HEAVY_DELAY_DAYS = 3
+DEFAULT_FORECAST_POP_THRESHOLD = 70
+DEFAULT_STOP_ACTIVE_WATERING = True

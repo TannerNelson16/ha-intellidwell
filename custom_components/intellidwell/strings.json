@@ -18,5 +18,41 @@
     "abort": {
       "already_configured": "Device is already configured"
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Weather Push & Automatic Rain Delay",
+        "description": "Select the Home Assistant weather/rain entities to push directly to the sprinkler controller over LAN and configure automatic rain-delay thresholds.",
+        "data": {
+          "weather_push_enabled": "Enable Automatic Weather Push",
+          "rain_sensor": "Rain Sensor / Daily Precipitation Entity",
+          "temp_sensor": "Outdoor Temperature Sensor (Optional)",
+          "weather_entity": "Forecast Weather Entity (Optional)",
+          "source_name": "Weather Source Friendly Name (Optional)",
+          "auto_rain_delay": "Automatically Apply Rain Delay",
+          "rain_threshold": "Standard Rain Threshold",
+          "delay_days": "Standard Rain Delay Duration",
+          "heavy_rain_threshold": "Heavy Rain Threshold",
+          "heavy_delay_days": "Heavy Rain Delay Duration",
+          "forecast_pop_threshold": "Forecast Rain Probability Threshold",
+          "stop_active_watering": "Stop Active Watering Immediately on Rain"
+        },
+        "data_description": {
+          "weather_push_enabled": "When enabled, selected weather and rainfall readings are pushed automatically to the controller.",
+          "rain_sensor": "Sensor reporting today's accumulated rainfall in inches (e.g., Ambient Weather daily rain sensor).",
+          "temp_sensor": "Optional outdoor temperature sensor to push live temperature to the controller.",
+          "weather_entity": "Optional weather.* entity used for precipitation forecast probability (and temperature fallback if no sensor is chosen).",
+          "source_name": "Label displayed on the controller weather badge and Cloud UI. Leave blank to use the selected sensor's friendly name.",
+          "auto_rain_delay": "Automatically set a rain delay on the controller when rainfall or forecast probability exceeds your thresholds.",
+          "rain_threshold": "Minimum daily rainfall (inches) to trigger a standard rain delay.",
+          "delay_days": "Number of days to suspend watering when the standard rain threshold is reached.",
+          "heavy_rain_threshold": "Minimum daily rainfall (inches) to trigger an extended rain delay.",
+          "heavy_delay_days": "Number of days to suspend watering when the heavy rain threshold is reached.",
+          "forecast_pop_threshold": "Minimum today precipitation probability (%) from the selected weather entity to apply a 1-day pre-emptive delay.",
+          "stop_active_watering": "Cancel active zone timers immediately if today's rainfall reaches or exceeds the standard rain threshold."
+        }
+      }
+    }
   }
 }

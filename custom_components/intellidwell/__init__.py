@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Callable
 import logging
 from pathlib import Path
 import types
@@ -14,11 +15,17 @@ from pyintellidwell import (
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, Platform
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import Event, HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.event import async_track_state_change_event
 
-from .const import DOMAIN
+from .const import (
+    CONF_RAIN_SENSOR,
+    CONF_TEMP_SENSOR,
+    CONF_WEATHER_ENTITY,
+    DOMAIN,
+)
 from .coordinator import IntelliDwellCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -178,6 +185,42 @@ async def async_setup_entry(
     entry.runtime_data = coordinator
     domain_entries = hass.data.setdefault(DOMAIN, {})
     domain_entries[entry.entry_id] = coordinator
+
+    weather_unsubs: list[Callable[[], None]] = []
+
+    def _bind_weather_listeners(cur_entry: IntelliDwellConfigEntry) -> None:
+        while weather_unsubs:
+            weather_unsubs.pop()()
+        tracked: list[str] = []
+        for opt_key in (CONF_RAIN_SENSOR, CONF_TEMP_SENSOR, CONF_WEATHER_ENTITY):
+            ent_id = cur_entry.options.get(opt_key)
+            if isinstance(ent_id, str) and ent_id.strip() and ent_id.strip() not in tracked:
+                tracked.append(ent_id.strip())
+        if not tracked:
+            return
+
+        async def _on_weather_entity_change(_event: Event) -> None:
+            coordinator.mark_weather_dirty()
+            await coordinator.async_request_refresh()
+
+        weather_unsubs.append(
+            async_track_state_change_event(hass, tracked, _on_weather_entity_change)
+        )
+
+    def _clear_weather_listeners() -> None:
+        while weather_unsubs:
+            weather_unsubs.pop()()
+
+    async def _async_update_options(
+        _hass: HomeAssistant, updated_entry: IntelliDwellConfigEntry
+    ) -> None:
+        _bind_weather_listeners(updated_entry)
+        coordinator.mark_weather_dirty()
+        await coordinator.async_request_refresh()
+
+    _bind_weather_listeners(entry)
+    entry.async_on_unload(_clear_weather_listeners)
+    entry.async_on_unload(entry.add_update_listener(_async_update_options))
 
     await _async_ensure_card_registered(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -385,5 +428,6 @@ async def async_unload_entry(
             hass.services.async_remove(DOMAIN, SERVICE_TOGGLE_ZONE_SCHEDULE)
             hass.services.async_remove(DOMAIN, SERVICE_START_TIMER)
             hass.services.async_remove(DOMAIN, SERVICE_CANCEL_TIMER)
+            hass.services.async_remove(DOMAIN, SERVICE_PUSH_WEATHER)
 
     return unload_ok
