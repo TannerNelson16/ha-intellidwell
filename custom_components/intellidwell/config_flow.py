@@ -15,11 +15,17 @@ from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import (
+    CONF_ANTICIPATED_24H_THRESHOLD,
+    CONF_ANTICIPATED_48H_THRESHOLD,
     CONF_AUTO_RAIN_DELAY,
+    CONF_COLLECTED_48H_THRESHOLD,
     CONF_DELAY_DAYS,
     CONF_FORECAST_POP_THRESHOLD,
+    CONF_FORECAST_RAIN_48H_SENSOR,
+    CONF_FORECAST_RAIN_SENSOR,
     CONF_HEAVY_DELAY_DAYS,
     CONF_HEAVY_RAIN_THRESHOLD,
+    CONF_RAIN_48H_SENSOR,
     CONF_RAIN_SENSOR,
     CONF_RAIN_THRESHOLD,
     CONF_SOURCE_NAME,
@@ -27,7 +33,10 @@ from .const import (
     CONF_TEMP_SENSOR,
     CONF_WEATHER_ENTITY,
     CONF_WEATHER_PUSH_ENABLED,
+    DEFAULT_ANTICIPATED_24H_THRESHOLD,
+    DEFAULT_ANTICIPATED_48H_THRESHOLD,
     DEFAULT_AUTO_RAIN_DELAY,
+    DEFAULT_COLLECTED_48H_THRESHOLD,
     DEFAULT_DELAY_DAYS,
     DEFAULT_FORECAST_POP_THRESHOLD,
     DEFAULT_HEAVY_DELAY_DAYS,
@@ -101,11 +110,20 @@ OPTIONS_SCHEMA = vol.Schema(
         vol.Optional(CONF_RAIN_SENSOR): selector.EntitySelector(
             selector.EntitySelectorConfig(domain="sensor")
         ),
+        vol.Optional(CONF_RAIN_48H_SENSOR): selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="sensor")
+        ),
         vol.Optional(CONF_TEMP_SENSOR): selector.EntitySelector(
             selector.EntitySelectorConfig(domain="sensor")
         ),
         vol.Optional(CONF_WEATHER_ENTITY): selector.EntitySelector(
             selector.EntitySelectorConfig(domain="weather")
+        ),
+        vol.Optional(CONF_FORECAST_RAIN_SENSOR): selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="sensor")
+        ),
+        vol.Optional(CONF_FORECAST_RAIN_48H_SENSOR): selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="sensor")
         ),
         vol.Optional(CONF_SOURCE_NAME): selector.TextSelector(),
         vol.Optional(
@@ -118,6 +136,39 @@ OPTIONS_SCHEMA = vol.Schema(
                 min=0.01,
                 max=5.0,
                 step=0.01,
+                unit_of_measurement="in",
+                mode=selector.NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Optional(
+            CONF_COLLECTED_48H_THRESHOLD, default=DEFAULT_COLLECTED_48H_THRESHOLD
+        ): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=0.01,
+                max=10.0,
+                step=0.05,
+                unit_of_measurement="in",
+                mode=selector.NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Optional(
+            CONF_ANTICIPATED_24H_THRESHOLD, default=DEFAULT_ANTICIPATED_24H_THRESHOLD
+        ): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=0.01,
+                max=5.0,
+                step=0.05,
+                unit_of_measurement="in",
+                mode=selector.NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Optional(
+            CONF_ANTICIPATED_48H_THRESHOLD, default=DEFAULT_ANTICIPATED_48H_THRESHOLD
+        ): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=0.01,
+                max=10.0,
+                step=0.05,
                 unit_of_measurement="in",
                 mode=selector.NumberSelectorMode.BOX,
             )
@@ -159,7 +210,7 @@ OPTIONS_SCHEMA = vol.Schema(
             CONF_FORECAST_POP_THRESHOLD, default=DEFAULT_FORECAST_POP_THRESHOLD
         ): selector.NumberSelector(
             selector.NumberSelectorConfig(
-                min=20,
+                min=10,
                 max=100,
                 step=5,
                 unit_of_measurement="%",
@@ -188,8 +239,11 @@ class IntelliDwellOptionsFlowHandler(config_entries.OptionsFlow):
             cleaned = dict(user_input)
             for key in (
                 CONF_RAIN_SENSOR,
+                CONF_RAIN_48H_SENSOR,
                 CONF_TEMP_SENSOR,
                 CONF_WEATHER_ENTITY,
+                CONF_FORECAST_RAIN_SENSOR,
+                CONF_FORECAST_RAIN_48H_SENSOR,
                 CONF_SOURCE_NAME,
             ):
                 val = cleaned.get(key)

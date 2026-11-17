@@ -21,6 +21,9 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import (
+    CONF_FORECAST_RAIN_48H_SENSOR,
+    CONF_FORECAST_RAIN_SENSOR,
+    CONF_RAIN_48H_SENSOR,
     CONF_RAIN_SENSOR,
     CONF_TEMP_SENSOR,
     CONF_WEATHER_ENTITY,
@@ -192,7 +195,14 @@ async def async_setup_entry(
         while weather_unsubs:
             weather_unsubs.pop()()
         tracked: list[str] = []
-        for opt_key in (CONF_RAIN_SENSOR, CONF_TEMP_SENSOR, CONF_WEATHER_ENTITY):
+        for opt_key in (
+            CONF_RAIN_SENSOR,
+            CONF_RAIN_48H_SENSOR,
+            CONF_TEMP_SENSOR,
+            CONF_WEATHER_ENTITY,
+            CONF_FORECAST_RAIN_SENSOR,
+            CONF_FORECAST_RAIN_48H_SENSOR,
+        ):
             ent_id = cur_entry.options.get(opt_key)
             if isinstance(ent_id, str) and ent_id.strip() and ent_id.strip() not in tracked:
                 tracked.append(ent_id.strip())

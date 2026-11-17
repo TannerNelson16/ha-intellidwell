@@ -16,11 +16,17 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
+    CONF_ANTICIPATED_24H_THRESHOLD,
+    CONF_ANTICIPATED_48H_THRESHOLD,
     CONF_AUTO_RAIN_DELAY,
+    CONF_COLLECTED_48H_THRESHOLD,
     CONF_DELAY_DAYS,
     CONF_FORECAST_POP_THRESHOLD,
+    CONF_FORECAST_RAIN_48H_SENSOR,
+    CONF_FORECAST_RAIN_SENSOR,
     CONF_HEAVY_DELAY_DAYS,
     CONF_HEAVY_RAIN_THRESHOLD,
+    CONF_RAIN_48H_SENSOR,
     CONF_RAIN_SENSOR,
     CONF_RAIN_THRESHOLD,
     CONF_SOURCE_NAME,
@@ -28,7 +34,10 @@ from .const import (
     CONF_TEMP_SENSOR,
     CONF_WEATHER_ENTITY,
     CONF_WEATHER_PUSH_ENABLED,
+    DEFAULT_ANTICIPATED_24H_THRESHOLD,
+    DEFAULT_ANTICIPATED_48H_THRESHOLD,
     DEFAULT_AUTO_RAIN_DELAY,
+    DEFAULT_COLLECTED_48H_THRESHOLD,
     DEFAULT_DELAY_DAYS,
     DEFAULT_FORECAST_POP_THRESHOLD,
     DEFAULT_HEAVY_DELAY_DAYS,
@@ -130,49 +139,109 @@ class IntelliDwellCoordinator(DataUpdateCoordinator[dict]):
         opts: dict[str, Any],
         rain_ent: str,
         weather_ent: str,
+        forecast_rain_ent: str = "",
     ) -> str:
         """Resolve display source label from custom option or entity friendly name."""
         source_name = (opts.get(CONF_SOURCE_NAME) or "").strip()
         if source_name:
             return source_name
-        for ent_id in (rain_ent, weather_ent):
+        for ent_id in (rain_ent, weather_ent, forecast_rain_ent):
             if ent_id:
                 st = self.hass.states.get(ent_id)
                 if st and st.attributes.get("friendly_name"):
                     return str(st.attributes["friendly_name"])
         return "Home Assistant"
 
+    async def _async_get_weather_forecast(
+        self, weather_ent: str
+    ) -> tuple[float, float, int]:
+        """Fetch next-24h QPF (in), next-48h QPF (in), and POP (%) from weather entity."""
+        if not weather_ent:
+            return 0.0, 0.0, 0
+        st_w = self.hass.states.get(weather_ent)
+        forecast = st_w.attributes.get("forecast") if st_w else None
+        if not (isinstance(forecast, (list, tuple)) and forecast) and self.hass.services.has_service(
+            "weather", "get_forecasts"
+        ):
+            try:
+                resp = await self.hass.services.async_call(
+                    "weather",
+                    "get_forecasts",
+                    {"entity_id": weather_ent, "type": "daily"},
+                    blocking=True,
+                    return_response=True,
+                )
+                if isinstance(resp, dict):
+                    ent_resp = resp.get(weather_ent)
+                    if isinstance(ent_resp, dict):
+                        forecast = ent_resp.get("forecast")
+            except Exception as err:
+                _LOGGER.debug(
+                    "Error calling weather.get_forecasts for %s: %s", weather_ent, err
+                )
+        if not (isinstance(forecast, (list, tuple)) and forecast and isinstance(forecast[0], dict)):
+            return 0.0, 0.0, 0
+
+        unit = st_w.attributes.get("precipitation_unit") if st_w else None
+        scale = (1.0 / 25.4) if unit == "mm" else 1.0
+        p0 = (_parse_float(forecast[0].get("precipitation")) or 0.0) * scale
+        ant_24 = p0
+        if len(forecast) > 1 and isinstance(forecast[1], dict):
+            p1 = (_parse_float(forecast[1].get("precipitation")) or 0.0) * scale
+            ant_48 = p0 + p1
+        else:
+            ant_48 = ant_24
+        raw_pop = _parse_float(forecast[0].get("precipitation_probability"))
+        today_pop = int(raw_pop) if raw_pop is not None else 0
+        return round(ant_24, 4), round(ant_48, 4), today_pop
+
     def _calculate_auto_rain_delay(
         self,
         opts: dict[str, Any],
         rain_today: float,
-        weather_ent: str,
+        col_48: float,
+        ant_24: float,
+        ant_48: float,
+        today_pop: int,
+        has_forecast: bool,
     ) -> int:
-        """Calculate rain delay days from configured rainfall & forecast thresholds."""
+        """Calculate rain delay days using collected & anticipated thresholds."""
         if not opts.get(CONF_AUTO_RAIN_DELAY, DEFAULT_AUTO_RAIN_DELAY):
             return 0
         rain_thresh = float(opts.get(CONF_RAIN_THRESHOLD, DEFAULT_RAIN_THRESHOLD))
+        col_48_thresh = float(
+            opts.get(CONF_COLLECTED_48H_THRESHOLD, DEFAULT_COLLECTED_48H_THRESHOLD)
+        )
+        ant_24_thresh = float(
+            opts.get(CONF_ANTICIPATED_24H_THRESHOLD, DEFAULT_ANTICIPATED_24H_THRESHOLD)
+        )
+        ant_48_thresh = float(
+            opts.get(CONF_ANTICIPATED_48H_THRESHOLD, DEFAULT_ANTICIPATED_48H_THRESHOLD)
+        )
+        pop_thresh = int(
+            opts.get(CONF_FORECAST_POP_THRESHOLD, DEFAULT_FORECAST_POP_THRESHOLD)
+        )
         hvy_thresh = float(opts.get(CONF_HEAVY_RAIN_THRESHOLD, DEFAULT_HEAVY_RAIN_THRESHOLD))
         std_days = int(opts.get(CONF_DELAY_DAYS, DEFAULT_DELAY_DAYS))
         hvy_days = int(opts.get(CONF_HEAVY_DELAY_DAYS, DEFAULT_HEAVY_DELAY_DAYS))
-        pop_thresh = int(opts.get(CONF_FORECAST_POP_THRESHOLD, DEFAULT_FORECAST_POP_THRESHOLD))
 
-        today_pop = 0
-        if weather_ent:
-            st_w = self.hass.states.get(weather_ent)
-            forecast = st_w.attributes.get("forecast") if st_w else None
-            if isinstance(forecast, (list, tuple)) and forecast and isinstance(forecast[0], dict):
-                raw_pop = _parse_float(forecast[0].get("precipitation_probability"))
-                if raw_pop is not None:
-                    today_pop = int(raw_pop)
+        should_delay = (
+            rain_today >= rain_thresh
+            or col_48 >= col_48_thresh
+            or ant_24 >= ant_24_thresh
+            or ant_48 >= ant_48_thresh
+            or (has_forecast and today_pop >= pop_thresh)
+        )
+        if not should_delay:
+            return 0
 
-        if rain_today >= hvy_thresh:
-            return hvy_days
-        if rain_today >= rain_thresh:
-            return std_days
-        if weather_ent and today_pop >= pop_thresh:
-            return 1
-        return 0
+        combined_24 = rain_today + ant_24
+        is_heavy = (
+            combined_24 >= hvy_thresh
+            or col_48 >= hvy_thresh * 1.25
+            or ant_48 >= hvy_thresh * 1.25
+        )
+        return hvy_days if is_heavy else std_days
 
     async def _async_evaluate_and_push_weather(self, status_data: dict[str, Any]) -> None:
         """Push configured weather entities and apply automatic rain delay when needed."""
@@ -181,9 +250,19 @@ class IntelliDwellCoordinator(DataUpdateCoordinator[dict]):
             return
 
         rain_ent = (opts.get(CONF_RAIN_SENSOR) or "").strip()
+        rain_48h_ent = (opts.get(CONF_RAIN_48H_SENSOR) or "").strip()
         temp_ent = (opts.get(CONF_TEMP_SENSOR) or "").strip()
         weather_ent = (opts.get(CONF_WEATHER_ENTITY) or "").strip()
-        if not (rain_ent or temp_ent or weather_ent):
+        forecast_rain_ent = (opts.get(CONF_FORECAST_RAIN_SENSOR) or "").strip()
+        forecast_rain_48h_ent = (opts.get(CONF_FORECAST_RAIN_48H_SENSOR) or "").strip()
+        if not (
+            rain_ent
+            or rain_48h_ent
+            or temp_ent
+            or weather_ent
+            or forecast_rain_ent
+            or forecast_rain_48h_ent
+        ):
             return
 
         rain_today = 0.0
@@ -191,11 +270,37 @@ class IntelliDwellCoordinator(DataUpdateCoordinator[dict]):
             st_rain = self.hass.states.get(rain_ent)
             parsed_rain = _parse_float(st_rain.state) if st_rain else None
             if parsed_rain is None:
-                if not temp_ent and not weather_ent:
+                if not (
+                    rain_48h_ent
+                    or temp_ent
+                    or weather_ent
+                    or forecast_rain_ent
+                    or forecast_rain_48h_ent
+                ):
                     return
                 rain_today = 0.0
             else:
                 rain_today = parsed_rain
+
+        col_48 = rain_today
+        if rain_48h_ent:
+            st_48 = self.hass.states.get(rain_48h_ent)
+            parsed_48 = _parse_float(st_48.state) if st_48 else None
+            if parsed_48 is not None:
+                col_48 = parsed_48
+
+        ant_24, ant_48, today_pop = await self._async_get_weather_forecast(weather_ent)
+        if forecast_rain_ent:
+            st_f24 = self.hass.states.get(forecast_rain_ent)
+            parsed_f24 = _parse_float(st_f24.state) if st_f24 else None
+            if parsed_f24 is not None:
+                ant_24 = parsed_f24
+        if forecast_rain_48h_ent:
+            st_f48 = self.hass.states.get(forecast_rain_48h_ent)
+            parsed_f48 = _parse_float(st_f48.state) if st_f48 else None
+            if parsed_f48 is not None:
+                ant_48 = parsed_f48
+        ant_48 = max(ant_48, ant_24)
 
         temp: float | None = None
         if temp_ent:
@@ -205,8 +310,11 @@ class IntelliDwellCoordinator(DataUpdateCoordinator[dict]):
             st_w = self.hass.states.get(weather_ent)
             temp = _parse_float(st_w.attributes.get("temperature")) if st_w else None
 
-        source = self._resolve_weather_source(opts, rain_ent, weather_ent)
-        delay_days = self._calculate_auto_rain_delay(opts, rain_today, weather_ent)
+        source = self._resolve_weather_source(opts, rain_ent, weather_ent, forecast_rain_ent)
+        has_forecast = bool(weather_ent or forecast_rain_ent)
+        delay_days = self._calculate_auto_rain_delay(
+            opts, rain_today, col_48, ant_24, ant_48, today_pop, has_forecast
+        )
         sig = (
             round(rain_today, 2),
             round(temp, 1) if temp is not None else None,
