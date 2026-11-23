@@ -1,6 +1,7 @@
 """Constants for the IntelliDwell Sprinkler Controller integration."""
 
 DOMAIN = "intellidwell"
+CARD_VERSION = "1.2.1"
 
 CONF_WEATHER_PUSH_ENABLED = "weather_push_enabled"
 CONF_RAIN_SENSOR = "rain_sensor"

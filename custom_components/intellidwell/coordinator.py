@@ -75,6 +75,7 @@ class IntelliDwellCoordinator(DataUpdateCoordinator[dict]):
         self._rain_delay_dirty: bool = True
         self._settings_dirty: bool = True
         self._rain_delay_poll_counter: int = 0
+        self._schedules_poll_counter: int = 0
         self._settings_poll_counter: int = 0
         self._weather_dirty: bool = True
         self._weather_push_counter: int = 0
@@ -114,15 +115,16 @@ class IntelliDwellCoordinator(DataUpdateCoordinator[dict]):
             _LOGGER.debug("Error fetching rain delay: %s", e)
             return {"days_remaining": 0}
 
-    async def _get_schedules(self) -> list[Any]:
-        if hasattr(self.client, "get_schedules"):
-            return await self.client.get_schedules()
+    async def _get_schedules(self) -> list[Any] | None:
         try:
-            res = await self.client._request("GET", "get-schedules")
-            return res if isinstance(res, list) else []
+            if hasattr(self.client, "get_schedules"):
+                res = await self.client.get_schedules()
+            else:
+                res = await self.client._request("GET", "get-schedules")
+            return res if isinstance(res, list) else None
         except Exception as e:
             _LOGGER.debug("Error fetching schedules: %s", e)
-            return []
+            return None
 
     async def _get_settings_raw(self) -> dict[str, Any]:
         """Fetch raw settings from the controller."""
@@ -390,12 +392,15 @@ class IntelliDwellCoordinator(DataUpdateCoordinator[dict]):
         else:
             self._rain_delay_poll_counter -= 1
 
-        # Schedules refresh (only on startup or after explicit schedule modifications)
-        if self._schedules_dirty or not self._cached_schedules:
+        # Schedules refresh (every ~60s, on startup, or immediately after schedule changes)
+        if self._schedules_dirty or not self._cached_schedules or self._schedules_poll_counter <= 0:
             sched_res = await self._get_schedules()
-            if sched_res:
+            if sched_res is not None:
                 self._cached_schedules = sched_res
-            self._schedules_dirty = False
+                self._schedules_dirty = False
+                self._schedules_poll_counter = 6  # 6 x 10s = 60s
+        else:
+            self._schedules_poll_counter -= 1
 
         # Settings refresh (every ~30 mins or immediately if marked dirty)
         if self._settings_dirty or not self._cached_settings or self._settings_poll_counter <= 0:

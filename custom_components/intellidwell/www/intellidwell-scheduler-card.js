@@ -73,23 +73,41 @@ class IntelliDwellSchedulerCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
-    this._render();
+    if (!this._modalState && !this._timerModalState) {
+      this._render();
+    }
   }
 
   getCardSize() {
     return 6;
   }
 
+  _isIntellidwellZoneSwitch(entityId, stateObj) {
+    if (!entityId.startsWith("switch.") || entityId.endsWith("_schedule")) {
+      return false;
+    }
+    const attrs = stateObj && stateObj.attributes;
+    if (!attrs || attrs.zone_index === undefined) {
+      return false;
+    }
+    const regEntry =
+      this._hass && this._hass.entities ? this._hass.entities[entityId] : null;
+    if (regEntry && regEntry.platform) {
+      return regEntry.platform === "intellidwell";
+    }
+    return (
+      entityId.includes("intellidwell") ||
+      (Array.isArray(attrs.schedules) &&
+        attrs.schedule_enabled !== undefined &&
+        attrs.zone_name !== undefined)
+    );
+  }
+
   _getScheduleEntities() {
-    if (!this._hass) return [];
+    if (!this._hass || !this._hass.states) return [];
     const entities = [];
     for (const [entityId, stateObj] of Object.entries(this._hass.states)) {
-      if (
-        entityId.startsWith("switch.intellidwell_") &&
-        !entityId.endsWith("_schedule") &&
-        stateObj.attributes &&
-        stateObj.attributes.zone_index !== undefined
-      ) {
+      if (this._isIntellidwellZoneSwitch(entityId, stateObj)) {
         entities.push(stateObj);
       }
     }
@@ -744,7 +762,9 @@ class IntelliDwellSchedulerCard extends HTMLElement {
     for (const ent of entities) {
       const zIdx = ent.attributes.zone_index || 1;
       const zName = ent.attributes.zone_name || `Zone ${zIdx}`;
-      const schedCount = (ent.attributes.schedules || []).length;
+      const schedCount = Array.isArray(ent.attributes.schedules)
+        ? ent.attributes.schedules.length
+        : 0;
       const isActive = String(this._selectedZoneFilter) === String(zIdx);
 
       pills += `
@@ -773,7 +793,9 @@ class IntelliDwellSchedulerCard extends HTMLElement {
       .map((ent) => {
         const zIdx = ent.attributes.zone_index || 1;
         const zName = ent.attributes.zone_name || `Zone ${zIdx}`;
-        const schedules = ent.attributes.schedules || [];
+        const schedules = Array.isArray(ent.attributes.schedules)
+          ? ent.attributes.schedules
+          : [];
         const isMasterOn = ent.attributes.schedule_enabled !== false;
         const remaining = Number(ent.attributes.timer_remaining_seconds || 0);
         const isWatering = ent.state === "on" || remaining > 0;
@@ -1401,7 +1423,7 @@ window.customCards.push({
   documentationURL: "https://github.com/TannerNelson16/ha-intellidwell",
 });
 console.info(
-  "%c INTELLIDWELL-SCHEDULER-CARD %c v1.0.2 Loaded ",
+  "%c INTELLIDWELL-SCHEDULER-CARD %c v1.2.1 Loaded ",
   "color: white; background: #3b82f6; font-weight: 700;",
   "color: #3b82f6; background: #1e293b; font-weight: 700;"
 );

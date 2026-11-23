@@ -21,6 +21,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import (
+    CARD_VERSION,
     CONF_FORECAST_RAIN_48H_SENSOR,
     CONF_FORECAST_RAIN_SENSOR,
     CONF_RAIN_48H_SENSOR,
@@ -126,7 +127,8 @@ def _zone_to_pin(zone_val: Any) -> int:
     raise HomeAssistantError(f"Zone must be between 1 and 10, got {zone_val}")
 
 
-CARD_URL = "/intellidwell/intellidwell-scheduler-card.js"
+CARD_PATH = "/intellidwell/intellidwell-scheduler-card.js"
+CARD_URL = f"{CARD_PATH}?v={CARD_VERSION}"
 DATA_STATIC_REGISTERED = f"{DOMAIN}_static_registered"
 
 
@@ -139,13 +141,13 @@ async def _async_ensure_card_registered(hass: HomeAssistant) -> None:
         if hasattr(hass, "http") and hass.http:
             try:
                 await hass.http.async_register_static_paths([
-                    StaticPathConfig(CARD_URL, str(card_path), True)
+                    StaticPathConfig(CARD_PATH, str(card_path), True)
                 ])
                 hass.data[DATA_STATIC_REGISTERED] = True
             except Exception as err:
                 _LOGGER.debug("Could not register static path for card: %s", err)
 
-    # Register card URL in Lovelace resources
+    # Register or cache-bust card URL in Lovelace resources
     try:
         lovelace = hass.data.get("lovelace")
         if lovelace and hasattr(lovelace, "resources"):
@@ -153,9 +155,9 @@ async def _async_ensure_card_registered(hass: HomeAssistant) -> None:
             if hasattr(resources, "loaded") and resources.loaded:
                 for item in resources.async_items():
                     url = item.get("url", "")
-                    if url.startswith(CARD_URL):
+                    if url == CARD_URL:
                         return
-                    if url.startswith("/local/intellidwell-scheduler-card.js"):
+                    if url.startswith(CARD_PATH) or url.startswith("/local/intellidwell-scheduler-card.js"):
                         try:
                             await resources.async_update_item(item["id"], {
                                 "res_type": "module",
