@@ -52,7 +52,12 @@ async def test_lovelace_resource_cache_busts_on_upgrade(hass: HomeAssistant) -> 
             "url": f"/intellidwell/intellidwell-scheduler-card.js?v={CARD_VERSION}",
         },
     )
-    mock_resources.async_create_item.assert_not_called()
+    mock_resources.async_create_item.assert_awaited_once_with(
+        {
+            "res_type": "module",
+            "url": f"/intellidwell/intellidwell-weather-card.js?v={CARD_VERSION}",
+        },
+    )
 
 
 async def test_coordinator_handles_schedule_error_and_populates_switch_attrs(

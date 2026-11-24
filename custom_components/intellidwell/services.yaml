@@ -304,3 +304,75 @@ push_weather:
           max: 120
           step: 0.5
           mode: box
+
+update_weather_settings:
+  name: Update Smart Weather Rules
+  description: Save Smart Weather Automation settings (entities, presets, rain/heat/cool/freeze/wind thresholds) directly from a dashboard card or script.
+  fields:
+    config_entry_id:
+      name: Config Entry ID
+      description: Optional integration entry ID when multiple controllers are present.
+      required: false
+      selector:
+        text: {}
+    apply_now:
+      name: Apply Modifier Immediately
+      description: Push the recalculated weather modifier straight to the controller after saving.
+      required: false
+      default: false
+      selector:
+        boolean: {}
+
+apply_weather_modifier:
+  name: Apply or Clear Weather Modifier
+  description: Push the currently recommended weather scaling/skip rule or clear active weather overrides on the controller.
+  fields:
+    config_entry_id:
+      name: Config Entry ID
+      description: Optional integration entry ID.
+      required: false
+      selector:
+        text: {}
+    mode:
+      name: Mode
+      description: "'recommended', 'clear', or 'custom'."
+      required: false
+      default: "recommended"
+      selector:
+        select:
+          options:
+            - "recommended"
+            - "clear"
+            - "custom"
+    scale_pct:
+      name: Custom Schedule Scale (%)
+      description: Schedule runtime multiplier when mode is 'custom' (50 to 160%).
+      required: false
+      selector:
+        number:
+          min: 50
+          max: 160
+          step: 5
+          mode: slider
+
+run_cooling_mist:
+  name: Run Afternoon Lawn Cooling Mist
+  description: Start a quick 1-5 minute sequential cooling mist across non-drip lawn zones to reduce turf heat stress.
+  fields:
+    config_entry_id:
+      name: Config Entry ID
+      description: Optional integration entry ID.
+      required: false
+      selector:
+        text: {}
+    minutes:
+      name: Mist Duration (Minutes)
+      description: Duration per lawn zone (1 to 10 minutes).
+      required: false
+      default: 3
+      selector:
+        number:
+          min: 1
+          max: 10
+          step: 1
+          mode: slider

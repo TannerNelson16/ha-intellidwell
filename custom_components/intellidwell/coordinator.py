@@ -15,12 +15,16 @@ from pyintellidwell import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_ANTICIPATED_24H_THRESHOLD,
     CONF_ANTICIPATED_48H_THRESHOLD,
     CONF_AUTO_RAIN_DELAY,
     CONF_COLLECTED_48H_THRESHOLD,
+    CONF_COOL_WAVE_ENABLED,
+    CONF_COOL_WAVE_REDUCE_PCT,
+    CONF_COOL_WAVE_TEMP_THRESHOLD,
     CONF_DELAY_DAYS,
     CONF_FORECAST_POP_THRESHOLD,
     CONF_FORECAST_RAIN_48H_SENSOR,
@@ -28,7 +32,12 @@ from .const import (
     CONF_FREEZE_SKIP_ENABLED,
     CONF_FREEZE_TEMP_THRESHOLD,
     CONF_HEAT_WAVE_BOOST_PCT,
+    CONF_HEAT_WAVE_DAYS,
     CONF_HEAT_WAVE_ENABLED,
+    CONF_HEAT_WAVE_SYRINGE_ENABLED,
+    CONF_HEAT_WAVE_SYRINGE_MINUTES,
+    CONF_HEAT_WAVE_SYRINGE_TEMP,
+    CONF_HEAT_WAVE_SYRINGE_TIME,
     CONF_HEAT_WAVE_TEMP_THRESHOLD,
     CONF_HEAVY_DELAY_DAYS,
     CONF_HEAVY_RAIN_THRESHOLD,
@@ -42,6 +51,7 @@ from .const import (
     CONF_TEMP_SENSOR,
     CONF_WEATHER_ENTITY,
     CONF_WEATHER_PUSH_ENABLED,
+    CONF_WIND_PROTECT_DRIP_EXEMPT,
     CONF_WIND_SENSOR,
     CONF_WIND_SKIP_ENABLED,
     CONF_WIND_SKIP_THRESHOLD,
@@ -49,12 +59,20 @@ from .const import (
     DEFAULT_ANTICIPATED_48H_THRESHOLD,
     DEFAULT_AUTO_RAIN_DELAY,
     DEFAULT_COLLECTED_48H_THRESHOLD,
+    DEFAULT_COOL_WAVE_ENABLED,
+    DEFAULT_COOL_WAVE_REDUCE_PCT,
+    DEFAULT_COOL_WAVE_TEMP_THRESHOLD,
     DEFAULT_DELAY_DAYS,
     DEFAULT_FORECAST_POP_THRESHOLD,
     DEFAULT_FREEZE_SKIP_ENABLED,
     DEFAULT_FREEZE_TEMP_THRESHOLD,
     DEFAULT_HEAT_WAVE_BOOST_PCT,
+    DEFAULT_HEAT_WAVE_DAYS,
     DEFAULT_HEAT_WAVE_ENABLED,
+    DEFAULT_HEAT_WAVE_SYRINGE_ENABLED,
+    DEFAULT_HEAT_WAVE_SYRINGE_MINUTES,
+    DEFAULT_HEAT_WAVE_SYRINGE_TEMP,
+    DEFAULT_HEAT_WAVE_SYRINGE_TIME,
     DEFAULT_HEAT_WAVE_TEMP_THRESHOLD,
     DEFAULT_HEAVY_DELAY_DAYS,
     DEFAULT_HEAVY_RAIN_THRESHOLD,
@@ -62,8 +80,10 @@ from .const import (
     DEFAULT_SOIL_MOISTURE_MAX_PCT,
     DEFAULT_STOP_ACTIVE_WATERING,
     DEFAULT_WEATHER_PUSH_ENABLED,
+    DEFAULT_WIND_PROTECT_DRIP_EXEMPT,
     DEFAULT_WIND_SKIP_ENABLED,
     DEFAULT_WIND_SKIP_THRESHOLD,
+    resolve_weather_options,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -104,6 +124,8 @@ class IntelliDwellCoordinator(DataUpdateCoordinator[dict]):
         self._weather_push_counter: int = 0
         self._last_weather_signature: tuple[Any, ...] | None = None
         self._last_ha_modifier_active: bool = False
+        self._last_syringe_date: str | None = None
+        self.last_weather_evaluation: dict[str, Any] = {}
 
         super().__init__(
             hass,
@@ -266,6 +288,16 @@ class IntelliDwellCoordinator(DataUpdateCoordinator[dict]):
         details = await self._async_get_weather_forecast_details(weather_ent)
         return details["ant_24"], details["ant_48"], details["today_pop"]
 
+    def _turf_pins(self) -> list[int]:
+        """Return 0-indexed non-drip zone pins for Cooling Mist / wind filtering."""
+        znames = self._cached_settings.get("zone_names", []) if isinstance(self._cached_settings, dict) else []
+        pins: list[int] = []
+        for pin in range(10):
+            zname = str(znames[pin]) if pin < len(znames) else ""
+            if not _DRIP_ZONE_NAME_RE.search(zname):
+                pins.append(pin)
+        return pins
+
     def _build_local_weather_modifier(
         self,
         opts: dict[str, Any],
@@ -276,17 +308,28 @@ class IntelliDwellCoordinator(DataUpdateCoordinator[dict]):
         soil_pct: float | None,
         delay_days: int,
     ) -> dict[str, Any]:
-        """Evaluate Freeze Skip, Wind Drift Guard, Heat Wave Boost, and Soil Moisture veto."""
-        freeze_en = bool(opts.get(CONF_FREEZE_SKIP_ENABLED, DEFAULT_FREEZE_SKIP_ENABLED))
-        freeze_th = float(opts.get(CONF_FREEZE_TEMP_THRESHOLD, DEFAULT_FREEZE_TEMP_THRESHOLD))
-        wind_en = bool(opts.get(CONF_WIND_SKIP_ENABLED, DEFAULT_WIND_SKIP_ENABLED))
-        wind_th = float(opts.get(CONF_WIND_SKIP_THRESHOLD, DEFAULT_WIND_SKIP_THRESHOLD))
-        hw_en = bool(opts.get(CONF_HEAT_WAVE_ENABLED, DEFAULT_HEAT_WAVE_ENABLED))
-        hw_th = float(opts.get(CONF_HEAT_WAVE_TEMP_THRESHOLD, DEFAULT_HEAT_WAVE_TEMP_THRESHOLD))
-        hw_boost = int(opts.get(CONF_HEAT_WAVE_BOOST_PCT, DEFAULT_HEAT_WAVE_BOOST_PCT))
-        soil_max = int(opts.get(CONF_SOIL_MOISTURE_MAX_PCT, DEFAULT_SOIL_MOISTURE_MAX_PCT))
+        """Evaluate Freeze Skip, Wind Drift Guard, Heat Wave Boost, Cool Wave Trim, Cooling Mist, and Soil Veto."""
+        cfg = resolve_weather_options(opts)
+        freeze_en = bool(cfg[CONF_FREEZE_SKIP_ENABLED])
+        freeze_th = float(cfg[CONF_FREEZE_TEMP_THRESHOLD])
+        wind_en = bool(cfg[CONF_WIND_SKIP_ENABLED])
+        wind_th = float(cfg[CONF_WIND_SKIP_THRESHOLD])
+        drip_exempt = bool(cfg[CONF_WIND_PROTECT_DRIP_EXEMPT])
+        hw_en = bool(cfg[CONF_HEAT_WAVE_ENABLED])
+        hw_th = float(cfg[CONF_HEAT_WAVE_TEMP_THRESHOLD])
+        hw_days_req = max(1, min(7, int(cfg[CONF_HEAT_WAVE_DAYS])))
+        hw_boost = max(5, min(60, int(cfg[CONF_HEAT_WAVE_BOOST_PCT])))
+        cw_en = bool(cfg[CONF_COOL_WAVE_ENABLED])
+        cw_th = float(cfg[CONF_COOL_WAVE_TEMP_THRESHOLD])
+        cw_reduce = max(5, min(50, int(cfg[CONF_COOL_WAVE_REDUCE_PCT])))
+        syr_en = bool(cfg[CONF_HEAT_WAVE_SYRINGE_ENABLED])
+        syr_temp = float(cfg[CONF_HEAT_WAVE_SYRINGE_TEMP])
+        syr_mins = max(1, min(10, int(cfg[CONF_HEAT_WAVE_SYRINGE_MINUTES])))
+        syr_time = str(cfg[CONF_HEAT_WAVE_SYRINGE_TIME] or DEFAULT_HEAT_WAVE_SYRINGE_TIME)
+        soil_max = int(cfg[CONF_SOIL_MOISTURE_MAX_PCT])
 
         tonight_low = forecast_lows[0] if forecast_lows else None
+        today_high = forecast_highs[0] if forecast_highs else temp
         freeze_skip = freeze_en and (
             (temp is not None and temp <= freeze_th)
             or (tonight_low is not None and tonight_low <= freeze_th)
@@ -295,11 +338,7 @@ class IntelliDwellCoordinator(DataUpdateCoordinator[dict]):
 
         skip_pins: list[int] = []
         if wind_skip:
-            znames = self._cached_settings.get("zone_names", []) if isinstance(self._cached_settings, dict) else []
-            for pin in range(10):
-                zname = str(znames[pin]) if pin < len(znames) else ""
-                if not _DRIP_ZONE_NAME_RE.search(zname):
-                    skip_pins.append(pin)
+            skip_pins = self._turf_pins() if drip_exempt else list(range(10))
 
         hot_streak = 0
         for idx, hi in enumerate(forecast_highs):
@@ -309,23 +348,59 @@ class IntelliDwellCoordinator(DataUpdateCoordinator[dict]):
             else:
                 break
         if not forecast_highs and temp is not None and temp >= (hw_th + 5.0):
-            hot_streak = 2
+            hot_streak = hw_days_req
 
         soil_saturated = soil_pct is not None and soil_pct >= soil_max
-        heat_wave = hw_en and hot_streak >= 2 and not soil_saturated and not freeze_skip and delay_days == 0
+        heat_wave = (
+            hw_en
+            and hot_streak >= hw_days_req
+            and not soil_saturated
+            and not freeze_skip
+            and delay_days == 0
+        )
+        cool_wave = (
+            cw_en
+            and not heat_wave
+            and not freeze_skip
+            and delay_days == 0
+            and today_high is not None
+            and today_high <= cw_th
+        )
 
-        scale_pct = 100 + hw_boost if heat_wave else 100
+        hot_for_mist = (temp is not None and temp >= syr_temp) or (
+            today_high is not None and today_high >= syr_temp
+        )
+        syringe_recommended = (
+            syr_en
+            and hot_for_mist
+            and not freeze_skip
+            and not wind_skip
+            and not soil_saturated
+            and delay_days == 0
+        )
+        syringe_pins = self._turf_pins()[:6] if syringe_recommended else []
+
+        scale_pct = 100
+        if heat_wave:
+            scale_pct = 100 + hw_boost
+        elif cool_wave:
+            scale_pct = max(50, 100 - cw_reduce)
+
         reasons: list[str] = []
         if freeze_skip:
             reasons.append(f"Freeze Skip (<= {freeze_th:.0f}F)")
-        elif soil_saturated and hw_en and hot_streak >= 2:
+        elif soil_saturated and hw_en and hot_streak >= hw_days_req:
             reasons.append(f"Heat boost vetoed (soil {soil_pct:.0f}% >= {soil_max}%)")
         elif heat_wave:
             reasons.append(f"Heat Wave +{hw_boost}% (>= {hw_th:.0f}F)")
+        elif cool_wave:
+            reasons.append(f"Cool Wave -{cw_reduce}% (<= {cw_th:.0f}F)")
         if wind_skip:
             reasons.append(f"Wind Skip ({wind_mph:.0f} mph)")
+        if syringe_recommended:
+            reasons.append(f"Cooling Mist {syr_mins}m @ {syr_time}")
 
-        active = bool(freeze_skip or wind_skip or scale_pct != 100)
+        active = bool(freeze_skip or wind_skip or scale_pct != 100 or syringe_recommended)
         return {
             "active": active,
             "scale_pct": scale_pct,
@@ -334,6 +409,15 @@ class IntelliDwellCoordinator(DataUpdateCoordinator[dict]):
             "freeze_skip": bool(freeze_skip),
             "wind_skip": bool(wind_skip),
             "heat_wave_active": bool(heat_wave),
+            "cool_wave_active": bool(cool_wave),
+            "soil_saturated": bool(soil_saturated),
+            "hot_streak": hot_streak,
+            "syringe": {
+                "enabled": syringe_recommended,
+                "time": syr_time,
+                "minutes": syr_mins,
+                "pins": syringe_pins,
+            },
             "reason": " · ".join(reasons) or "Normal",
             "ttl_seconds": 86400 if active else 0,
         }
@@ -489,6 +573,33 @@ class IntelliDwellCoordinator(DataUpdateCoordinator[dict]):
             soil_pct,
             delay_days,
         )
+        lows = wx_details.get("forecast_lows") or []
+        highs = wx_details.get("forecast_highs") or []
+        min_7d_low = min(lows) if lows else None
+        self.last_weather_evaluation = {
+            "evaluated_at": dt_util.utcnow().isoformat(),
+            "source": source,
+            "rain_today_in": round(rain_today, 2),
+            "collected_48h_in": round(col_48, 2),
+            "anticipated_24h_in": round(ant_24, 2),
+            "anticipated_48h_in": round(ant_48, 2),
+            "pop_pct": today_pop,
+            "temp_f": round(temp, 1) if temp is not None else None,
+            "today_high_f": round(highs[0], 1) if highs else (round(temp, 1) if temp is not None else None),
+            "tonight_low_f": round(lows[0], 1) if lows else None,
+            "hard_freeze_warning": bool(min_7d_low is not None and min_7d_low <= 28.0),
+            "wind_mph": round(wind_mph, 1) if wind_mph is not None else None,
+            "humidity_pct": round(humidity, 1) if humidity is not None else None,
+            "soil_moisture_pct": round(soil_pct, 1) if soil_pct is not None else None,
+            "soil_saturated": bool(modifier.get("soil_saturated")),
+            "hot_streak": int(modifier.get("hot_streak", 0)),
+            "recommended_delay_days": delay_days,
+            "recommended_modifier": modifier,
+        }
+
+        if not opts.get(CONF_WEATHER_PUSH_ENABLED, DEFAULT_WEATHER_PUSH_ENABLED):
+            return
+
         include_modifier = bool(modifier.get("active") or self._last_ha_modifier_active)
         sig = (
             round(rain_today, 2),
@@ -509,58 +620,112 @@ class IntelliDwellCoordinator(DataUpdateCoordinator[dict]):
             and self._weather_push_counter > 0
         ):
             self._weather_push_counter -= 1
-            return
-
-        try:
-            has_extra = (
-                soil_pct is not None
-                or wind_mph is not None
-                or humidity is not None
-                or include_modifier
-            )
-            if hasattr(self.client, "push_weather") and not has_extra:
-                await self.client.push_weather(
-                    rain_today_in=rain_today,
-                    source=source,
-                    delay_days=delay_days,
-                    temp=temp,
+        else:
+            try:
+                has_extra = (
+                    soil_pct is not None
+                    or wind_mph is not None
+                    or humidity is not None
+                    or include_modifier
                 )
-            else:
-                payload: dict[str, Any] = {
-                    "rain_today_in": rain_today,
-                    "source": source,
-                    "delay_days": delay_days,
-                }
-                if temp is not None:
-                    payload["temp"] = temp
-                if soil_pct is not None:
-                    payload["soil_moisture_pct"] = round(soil_pct, 1)
-                if wind_mph is not None:
-                    payload["wind_speed_mph"] = round(wind_mph, 1)
-                if humidity is not None:
-                    payload["humidity"] = round(humidity, 1)
-                if include_modifier:
-                    payload["weather_modifier"] = modifier
-                await self.client._request("POST", "api/weather", json=payload)
+                if hasattr(self.client, "push_weather") and not has_extra:
+                    await self.client.push_weather(
+                        rain_today_in=rain_today,
+                        source=source,
+                        delay_days=delay_days,
+                        temp=temp,
+                    )
+                else:
+                    payload: dict[str, Any] = {
+                        "rain_today_in": rain_today,
+                        "source": source,
+                        "delay_days": delay_days,
+                    }
+                    if temp is not None:
+                        payload["temp"] = temp
+                    if soil_pct is not None:
+                        payload["soil_moisture_pct"] = round(soil_pct, 1)
+                    if wind_mph is not None:
+                        payload["wind_speed_mph"] = round(wind_mph, 1)
+                    if humidity is not None:
+                        payload["humidity"] = round(humidity, 1)
+                    if include_modifier:
+                        payload["weather_modifier"] = modifier
+                    await self.client._request("POST", "api/weather", json=payload)
 
-            self._last_ha_modifier_active = bool(modifier.get("active"))
+                self._last_ha_modifier_active = bool(modifier.get("active"))
+                self._last_weather_signature = sig
+                self._weather_dirty = False
+                self._weather_push_counter = 90  # Re-push every ~15 minutes (90 x 10s)
+                if delay_days > 0:
+                    self._rain_delay_dirty = True
 
-            self._last_weather_signature = sig
-            self._weather_dirty = False
-            self._weather_push_counter = 90  # Re-push every ~15 minutes (90 x 10s)
-            if delay_days > 0:
-                self._rain_delay_dirty = True
+                rain_thresh = float(opts.get(CONF_RAIN_THRESHOLD, DEFAULT_RAIN_THRESHOLD))
+                if (
+                    opts.get(CONF_AUTO_RAIN_DELAY, DEFAULT_AUTO_RAIN_DELAY)
+                    and opts.get(CONF_STOP_ACTIVE_WATERING, DEFAULT_STOP_ACTIVE_WATERING)
+                    and rain_today >= rain_thresh
+                ):
+                    if any(status_data.get("relay_states", [])) or bool(status_data.get("timers")):
+                        await self.client._request("GET", "cancel-timer/0")
+            except Exception as err:
+                _LOGGER.debug("Error pushing automatic weather data: %s", err)
 
-            rain_thresh = float(opts.get(CONF_RAIN_THRESHOLD, DEFAULT_RAIN_THRESHOLD))
-            if (
-                opts.get(CONF_AUTO_RAIN_DELAY, DEFAULT_AUTO_RAIN_DELAY)
-                and opts.get(CONF_STOP_ACTIVE_WATERING, DEFAULT_STOP_ACTIVE_WATERING)
-                and rain_today >= rain_thresh
-            ):
-                if any(status_data.get("relay_states", [])) or bool(status_data.get("timers")):
-                    await self.client._request("GET", "cancel-timer/0")
-        except Exception as err:
-            _LOGGER.debug("Error pushing automatic weather data: %s", err)
+        # Optional daily Afternoon Cooling Mist trigger inside configured 15-min window
+        syr_cfg = modifier.get("syringe") if isinstance(modifier.get("syringe"), dict) else {}
+        if syr_cfg.get("enabled") and syr_cfg.get("pins"):
+            now_local = dt_util.now()
+            today_str = now_local.date().isoformat()
+            is_busy = (
+                any(status_data.get("relay_states", []))
+                or bool(status_data.get("timers"))
+                or bool((status_data.get("queue") or {}).get("active"))
+            )
+            if not is_busy and self._last_syringe_date != today_str:
+                try:
+                    t_parts = str(syr_cfg.get("time") or DEFAULT_HEAT_WAVE_SYRINGE_TIME).split(":")
+                    target_mins = int(t_parts[0]) * 60 + int(t_parts[1])
+                    cur_mins = now_local.hour * 60 + now_local.minute
+                    if target_mins <= cur_mins < (target_mins + 15):
+                        self._last_syringe_date = today_str
+                        await self.async_run_cooling_mist(
+                            pins=list(syr_cfg["pins"]),
+                            minutes=int(syr_cfg.get("minutes") or DEFAULT_HEAT_WAVE_SYRINGE_MINUTES),
+                        )
+                except Exception as err:
+                    _LOGGER.debug("Error evaluating Cooling Mist window: %s", err)
+
+    async def async_apply_weather_modifier(self, modifier: dict[str, Any]) -> None:
+        """Immediately push an explicit weather modifier payload to controller via /api/weather."""
+        eval_data = self.last_weather_evaluation or {}
+        payload: dict[str, Any] = {
+            "rain_today_in": float(eval_data.get("rain_today_in") or 0.0),
+            "source": str(eval_data.get("source") or "Home Assistant"),
+            "delay_days": 0,
+            "weather_modifier": modifier,
+        }
+        if eval_data.get("temp_f") is not None:
+            payload["temp"] = eval_data["temp_f"]
+        if eval_data.get("soil_moisture_pct") is not None:
+            payload["soil_moisture_pct"] = eval_data["soil_moisture_pct"]
+        if eval_data.get("wind_mph") is not None:
+            payload["wind_speed_mph"] = eval_data["wind_mph"]
+        await self.client._request("POST", "api/weather", json=payload)
+        self._last_ha_modifier_active = bool(modifier.get("active"))
+
+    async def async_run_cooling_mist(
+        self,
+        pins: list[int] | None = None,
+        minutes: int | None = None,
+    ) -> None:
+        """Start a short sequential cooling mist run on turf pins."""
+        opts = resolve_weather_options(dict(self.config_entry.options) if self.config_entry else {})
+        safe_mins = max(1, min(10, int(minutes or opts[CONF_HEAT_WAVE_SYRINGE_MINUTES])))
+        target_pins = pins if pins else self._turf_pins()[:6]
+        if not target_pins:
+            target_pins = [0]
+        queue = [{"pin": int(p), "duration_mins": safe_mins} for p in target_pins]
+        await self.client._request("POST", "start-run-queue", json={"queue": queue})
 
     @override
     async def _async_update_data(self) -> dict:

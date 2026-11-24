@@ -31,6 +31,9 @@ from .const import (
     CONF_WEATHER_ENTITY,
     CONF_WIND_SENSOR,
     DOMAIN,
+    WEATHER_OPTION_DEFAULTS,
+    WEATHER_STRING_KEYS,
+    resolve_weather_options,
 )
 from .coordinator import IntelliDwellCoordinator
 
@@ -47,6 +50,9 @@ SERVICE_TOGGLE_ZONE_SCHEDULE = "toggle_zone_schedule"
 SERVICE_START_TIMER = "start_timer"
 SERVICE_CANCEL_TIMER = "cancel_timer"
 SERVICE_PUSH_WEATHER = "push_weather"
+SERVICE_UPDATE_WEATHER_SETTINGS = "update_weather_settings"
+SERVICE_APPLY_WEATHER_MODIFIER = "apply_weather_modifier"
+SERVICE_RUN_COOLING_MIST = "run_cooling_mist"
 
 
 async def _safe_client_request(self: IntelliDwellClient, method: str, path: str, **kwargs: Any) -> Any:
@@ -131,47 +137,71 @@ def _zone_to_pin(zone_val: Any) -> int:
 
 CARD_PATH = "/intellidwell/intellidwell-scheduler-card.js"
 CARD_URL = f"{CARD_PATH}?v={CARD_VERSION}"
+WEATHER_CARD_PATH = "/intellidwell/intellidwell-weather-card.js"
+WEATHER_CARD_URL = f"{WEATHER_CARD_PATH}?v={CARD_VERSION}"
 DATA_STATIC_REGISTERED = f"{DOMAIN}_static_registered"
 
 
 async def _async_ensure_card_registered(hass: HomeAssistant) -> None:
-    """Serve and register intellidwell-scheduler-card in Lovelace resources."""
-    card_path = Path(__file__).parent / "www" / "intellidwell-scheduler-card.js"
+    """Serve and register scheduler & smart weather cards in Lovelace resources."""
+    www_dir = Path(__file__).parent / "www"
+    scheduler_path = www_dir / "intellidwell-scheduler-card.js"
+    weather_path = www_dir / "intellidwell-weather-card.js"
 
-    # Register static path with Home Assistant HTTP component once
+    # Register static paths with Home Assistant HTTP component once
     if DATA_STATIC_REGISTERED not in hass.data:
         if hasattr(hass, "http") and hass.http:
             try:
-                await hass.http.async_register_static_paths([
-                    StaticPathConfig(CARD_PATH, str(card_path), True)
-                ])
+                configs = [StaticPathConfig(CARD_PATH, str(scheduler_path), True)]
+                if weather_path.exists():
+                    configs.append(StaticPathConfig(WEATHER_CARD_PATH, str(weather_path), True))
+                await hass.http.async_register_static_paths(configs)
                 hass.data[DATA_STATIC_REGISTERED] = True
             except Exception as err:
-                _LOGGER.debug("Could not register static path for card: %s", err)
+                _LOGGER.debug("Could not register static path for cards: %s", err)
 
-    # Register or cache-bust card URL in Lovelace resources
+    # Register or cache-bust card URLs in Lovelace resources
     try:
         lovelace = hass.data.get("lovelace")
         if lovelace and hasattr(lovelace, "resources"):
             resources = lovelace.resources
             if hasattr(resources, "loaded") and resources.loaded:
-                for item in resources.async_items():
-                    url = item.get("url", "")
-                    if url == CARD_URL:
-                        return
-                    if url.startswith(CARD_PATH) or url.startswith("/local/intellidwell-scheduler-card.js"):
-                        try:
-                            await resources.async_update_item(item["id"], {
-                                "res_type": "module",
-                                "url": CARD_URL,
-                            })
-                            return
-                        except Exception:
-                            pass
-                await resources.async_create_item({
-                    "res_type": "module",
-                    "url": CARD_URL,
-                })
+                items = list(resources.async_items())
+                card_specs = [
+                    (
+                        CARD_PATH,
+                        CARD_URL,
+                        ("/local/intellidwell-scheduler-card.js",),
+                    ),
+                    (
+                        WEATHER_CARD_PATH,
+                        WEATHER_CARD_URL,
+                        ("/local/intellidwell-weather-card.js",),
+                    ),
+                ]
+                for path, url_versioned, legacy_prefixes in card_specs:
+                    matched = None
+                    for item in items:
+                        cur_url = item.get("url", "")
+                        if cur_url == url_versioned:
+                            matched = item
+                            break
+                        if cur_url.startswith(path) or any(
+                            cur_url.startswith(p) for p in legacy_prefixes
+                        ):
+                            matched = item
+                            try:
+                                await resources.async_update_item(
+                                    item["id"],
+                                    {"res_type": "module", "url": url_versioned},
+                                )
+                            except Exception:
+                                pass
+                            break
+                    if matched is None:
+                        await resources.async_create_item(
+                            {"res_type": "module", "url": url_versioned}
+                        )
     except Exception as err:
         _LOGGER.debug("Could not auto-register lovelace resource: %s", err)
 
@@ -421,6 +451,119 @@ async def async_setup_entry(
             coord.mark_rain_delay_dirty()
         await coord.async_request_refresh()
 
+    async def async_handle_update_weather_settings(call: ServiceCall) -> None:
+        """Persist Smart Weather automation rules from dashboard card into entry options."""
+        coord = _get_coordinator(hass, call)
+        target_entry = coord.config_entry
+        if target_entry is None:
+            raise HomeAssistantError("Controller config entry is unavailable")
+
+        merged = dict(target_entry.options)
+        raw_opts = call.data.get("options") if isinstance(call.data.get("options"), dict) else call.data
+        for key, default_val in WEATHER_OPTION_DEFAULTS.items():
+            if key not in raw_opts:
+                continue
+            val = raw_opts[key]
+            if key in WEATHER_STRING_KEYS:
+                merged[key] = str(val).strip() if val else ""
+            elif isinstance(default_val, bool):
+                merged[key] = bool(val)
+            elif isinstance(default_val, int):
+                try:
+                    merged[key] = int(round(float(val)))
+                except (ValueError, TypeError) as err:
+                    raise HomeAssistantError(f"Invalid integer for {key}: {val}") from err
+            elif isinstance(default_val, float):
+                try:
+                    merged[key] = round(float(val), 2)
+                except (ValueError, TypeError) as err:
+                    raise HomeAssistantError(f"Invalid number for {key}: {val}") from err
+
+        # Force evaluation & push when user saves & asks to apply immediately
+        coord._last_weather_signature = None
+        coord.mark_weather_dirty()
+        hass.config_entries.async_update_entry(target_entry, options=merged)
+        await coord.async_request_refresh()
+
+        if call.data.get("apply_now"):
+            rec_mod = (coord.last_weather_evaluation or {}).get("recommended_modifier")
+            if isinstance(rec_mod, dict):
+                try:
+                    await coord.async_apply_weather_modifier(rec_mod)
+                    await coord.async_request_refresh()
+                except Exception as err:
+                    raise HomeAssistantError(f"Failed to push weather modifier: {err}") from err
+
+    async def async_handle_apply_weather_modifier(call: ServiceCall) -> None:
+        """Push the recommended weather modifier or clear any active modifier on the controller."""
+        coord = _get_coordinator(hass, call)
+        mode = str(call.data.get("mode") or "recommended").lower()
+        if mode == "clear" or call.data.get("clear") is True:
+            mod: dict[str, Any] = {
+                "active": False,
+                "scale_pct": 100,
+                "skip_pins": [],
+                "inhibit": False,
+                "freeze_skip": False,
+                "wind_skip": False,
+                "syringe": {},
+                "reason": "Cleared",
+                "ttl_seconds": 0,
+            }
+        elif mode == "recommended":
+            rec = (coord.last_weather_evaluation or {}).get("recommended_modifier")
+            if isinstance(rec, dict):
+                mod = dict(rec)
+            else:
+                opts = resolve_weather_options(dict(coord.config_entry.options) if coord.config_entry else None)
+                eval_data = coord.last_weather_evaluation or {}
+                mod = coord._build_local_weather_modifier(
+                    opts,
+                    eval_data.get("temp_f"),
+                    [],
+                    [],
+                    eval_data.get("wind_mph"),
+                    eval_data.get("soil_moisture_pct"),
+                    0,
+                )
+        else:
+            scale_pct = int(call.data.get("scale_pct", 100))
+            inhibit = bool(call.data.get("inhibit", False))
+            wind_skip = bool(call.data.get("wind_skip", False))
+            freeze_skip = bool(call.data.get("freeze_skip", False))
+            raw_pins = call.data.get("skip_pins") or []
+            skip_pins = [int(p) for p in raw_pins] if isinstance(raw_pins, list) else []
+            active = bool(inhibit or freeze_skip or wind_skip or scale_pct != 100 or call.data.get("active", False))
+            mod = {
+                "active": active,
+                "scale_pct": scale_pct,
+                "skip_pins": skip_pins,
+                "inhibit": inhibit,
+                "freeze_skip": freeze_skip,
+                "wind_skip": wind_skip,
+                "reason": str(call.data.get("reason") or f"Custom {scale_pct}%"),
+                "ttl_seconds": int(call.data.get("ttl_seconds", 86400)) if active else 0,
+            }
+
+        try:
+            await coord.async_apply_weather_modifier(mod)
+        except Exception as err:
+            raise HomeAssistantError(f"Failed to apply weather modifier: {err}") from err
+        await coord.async_request_refresh()
+
+    async def async_handle_run_cooling_mist(call: ServiceCall) -> None:
+        """Run a short Afternoon Cooling Mist queue across turf zones."""
+        coord = _get_coordinator(hass, call)
+        raw_pins = call.data.get("pins")
+        pins = [int(p) for p in raw_pins] if isinstance(raw_pins, list) else None
+        minutes = call.data.get("minutes")
+        mins_int = int(minutes) if minutes is not None else None
+        try:
+            await coord.async_run_cooling_mist(pins=pins, minutes=mins_int)
+        except Exception as err:
+            raise HomeAssistantError(f"Failed to start cooling mist: {err}") from err
+        await coord.async_request_refresh()
+
     # Register services once
     if not hass.services.has_service(DOMAIN, SERVICE_ADD_SCHEDULE):
         hass.services.async_register(DOMAIN, SERVICE_ADD_SCHEDULE, async_handle_add_schedule)
@@ -431,6 +574,12 @@ async def async_setup_entry(
         hass.services.async_register(DOMAIN, SERVICE_START_TIMER, async_handle_start_timer)
         hass.services.async_register(DOMAIN, SERVICE_CANCEL_TIMER, async_handle_cancel_timer)
         hass.services.async_register(DOMAIN, SERVICE_PUSH_WEATHER, async_handle_push_weather)
+    if not hass.services.has_service(DOMAIN, SERVICE_UPDATE_WEATHER_SETTINGS):
+        hass.services.async_register(DOMAIN, SERVICE_UPDATE_WEATHER_SETTINGS, async_handle_update_weather_settings)
+    if not hass.services.has_service(DOMAIN, SERVICE_APPLY_WEATHER_MODIFIER):
+        hass.services.async_register(DOMAIN, SERVICE_APPLY_WEATHER_MODIFIER, async_handle_apply_weather_modifier)
+    if not hass.services.has_service(DOMAIN, SERVICE_RUN_COOLING_MIST):
+        hass.services.async_register(DOMAIN, SERVICE_RUN_COOLING_MIST, async_handle_run_cooling_mist)
 
     return True
 
@@ -452,5 +601,8 @@ async def async_unload_entry(
             hass.services.async_remove(DOMAIN, SERVICE_START_TIMER)
             hass.services.async_remove(DOMAIN, SERVICE_CANCEL_TIMER)
             hass.services.async_remove(DOMAIN, SERVICE_PUSH_WEATHER)
+            hass.services.async_remove(DOMAIN, SERVICE_UPDATE_WEATHER_SETTINGS)
+            hass.services.async_remove(DOMAIN, SERVICE_APPLY_WEATHER_MODIFIER)
+            hass.services.async_remove(DOMAIN, SERVICE_RUN_COOLING_MIST)
 
     return unload_ok

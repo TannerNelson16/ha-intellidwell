@@ -3,8 +3,6 @@ import logging
 from typing import Any
 
 import voluptuous as vol
-
-import voluptuous as vol
 from pyintellidwell import IntelliDwellClient, IntelliDwellConnectionError, IntelliDwellInvalidResponseError
 
 from homeassistant import config_entries
@@ -19,6 +17,9 @@ from .const import (
     CONF_ANTICIPATED_48H_THRESHOLD,
     CONF_AUTO_RAIN_DELAY,
     CONF_COLLECTED_48H_THRESHOLD,
+    CONF_COOL_WAVE_ENABLED,
+    CONF_COOL_WAVE_REDUCE_PCT,
+    CONF_COOL_WAVE_TEMP_THRESHOLD,
     CONF_DELAY_DAYS,
     CONF_FORECAST_POP_THRESHOLD,
     CONF_FORECAST_RAIN_48H_SENSOR,
@@ -26,7 +27,12 @@ from .const import (
     CONF_FREEZE_SKIP_ENABLED,
     CONF_FREEZE_TEMP_THRESHOLD,
     CONF_HEAT_WAVE_BOOST_PCT,
+    CONF_HEAT_WAVE_DAYS,
     CONF_HEAT_WAVE_ENABLED,
+    CONF_HEAT_WAVE_SYRINGE_ENABLED,
+    CONF_HEAT_WAVE_SYRINGE_MINUTES,
+    CONF_HEAT_WAVE_SYRINGE_TEMP,
+    CONF_HEAT_WAVE_SYRINGE_TIME,
     CONF_HEAT_WAVE_TEMP_THRESHOLD,
     CONF_HEAVY_DELAY_DAYS,
     CONF_HEAVY_RAIN_THRESHOLD,
@@ -40,6 +46,7 @@ from .const import (
     CONF_TEMP_SENSOR,
     CONF_WEATHER_ENTITY,
     CONF_WEATHER_PUSH_ENABLED,
+    CONF_WIND_PROTECT_DRIP_EXEMPT,
     CONF_WIND_SENSOR,
     CONF_WIND_SKIP_ENABLED,
     CONF_WIND_SKIP_THRESHOLD,
@@ -47,12 +54,20 @@ from .const import (
     DEFAULT_ANTICIPATED_48H_THRESHOLD,
     DEFAULT_AUTO_RAIN_DELAY,
     DEFAULT_COLLECTED_48H_THRESHOLD,
+    DEFAULT_COOL_WAVE_ENABLED,
+    DEFAULT_COOL_WAVE_REDUCE_PCT,
+    DEFAULT_COOL_WAVE_TEMP_THRESHOLD,
     DEFAULT_DELAY_DAYS,
     DEFAULT_FORECAST_POP_THRESHOLD,
     DEFAULT_FREEZE_SKIP_ENABLED,
     DEFAULT_FREEZE_TEMP_THRESHOLD,
     DEFAULT_HEAT_WAVE_BOOST_PCT,
+    DEFAULT_HEAT_WAVE_DAYS,
     DEFAULT_HEAT_WAVE_ENABLED,
+    DEFAULT_HEAT_WAVE_SYRINGE_ENABLED,
+    DEFAULT_HEAT_WAVE_SYRINGE_MINUTES,
+    DEFAULT_HEAT_WAVE_SYRINGE_TEMP,
+    DEFAULT_HEAT_WAVE_SYRINGE_TIME,
     DEFAULT_HEAT_WAVE_TEMP_THRESHOLD,
     DEFAULT_HEAVY_DELAY_DAYS,
     DEFAULT_HEAVY_RAIN_THRESHOLD,
@@ -60,9 +75,11 @@ from .const import (
     DEFAULT_SOIL_MOISTURE_MAX_PCT,
     DEFAULT_STOP_ACTIVE_WATERING,
     DEFAULT_WEATHER_PUSH_ENABLED,
+    DEFAULT_WIND_PROTECT_DRIP_EXEMPT,
     DEFAULT_WIND_SKIP_ENABLED,
     DEFAULT_WIND_SKIP_THRESHOLD,
     DOMAIN,
+    WEATHER_STRING_KEYS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -281,6 +298,70 @@ OPTIONS_SCHEMA = vol.Schema(
             )
         ),
         vol.Optional(
+            CONF_HEAT_WAVE_DAYS, default=DEFAULT_HEAT_WAVE_DAYS
+        ): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=1,
+                max=7,
+                step=1,
+                unit_of_measurement="days",
+                mode=selector.NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Optional(
+            CONF_HEAT_WAVE_SYRINGE_ENABLED, default=DEFAULT_HEAT_WAVE_SYRINGE_ENABLED
+        ): selector.BooleanSelector(),
+        vol.Optional(
+            CONF_HEAT_WAVE_SYRINGE_TEMP, default=DEFAULT_HEAT_WAVE_SYRINGE_TEMP
+        ): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=80,
+                max=115,
+                step=1,
+                unit_of_measurement="°F",
+                mode=selector.NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Optional(
+            CONF_HEAT_WAVE_SYRINGE_MINUTES, default=DEFAULT_HEAT_WAVE_SYRINGE_MINUTES
+        ): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=1,
+                max=10,
+                step=1,
+                unit_of_measurement="min",
+                mode=selector.NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Optional(
+            CONF_HEAT_WAVE_SYRINGE_TIME, default=DEFAULT_HEAT_WAVE_SYRINGE_TIME
+        ): selector.TextSelector(),
+        vol.Optional(
+            CONF_COOL_WAVE_ENABLED, default=DEFAULT_COOL_WAVE_ENABLED
+        ): selector.BooleanSelector(),
+        vol.Optional(
+            CONF_COOL_WAVE_TEMP_THRESHOLD, default=DEFAULT_COOL_WAVE_TEMP_THRESHOLD
+        ): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=40,
+                max=75,
+                step=1,
+                unit_of_measurement="°F",
+                mode=selector.NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Optional(
+            CONF_COOL_WAVE_REDUCE_PCT, default=DEFAULT_COOL_WAVE_REDUCE_PCT
+        ): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=5,
+                max=50,
+                step=5,
+                unit_of_measurement="%",
+                mode=selector.NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Optional(
             CONF_FREEZE_SKIP_ENABLED, default=DEFAULT_FREEZE_SKIP_ENABLED
         ): selector.BooleanSelector(),
         vol.Optional(
@@ -308,6 +389,9 @@ OPTIONS_SCHEMA = vol.Schema(
                 mode=selector.NumberSelectorMode.BOX,
             )
         ),
+        vol.Optional(
+            CONF_WIND_PROTECT_DRIP_EXEMPT, default=DEFAULT_WIND_PROTECT_DRIP_EXEMPT
+        ): selector.BooleanSelector(),
     }
 )
 
@@ -325,19 +409,12 @@ class IntelliDwellOptionsFlowHandler(config_entries.OptionsFlow):
         """Manage weather push entities and automatic rain-delay thresholds."""
         if user_input is not None:
             cleaned = dict(user_input)
-            for key in (
-                CONF_RAIN_SENSOR,
-                CONF_RAIN_48H_SENSOR,
-                CONF_TEMP_SENSOR,
-                CONF_WEATHER_ENTITY,
-                CONF_FORECAST_RAIN_SENSOR,
-                CONF_FORECAST_RAIN_48H_SENSOR,
-                CONF_SOIL_MOISTURE_SENSOR,
-                CONF_WIND_SENSOR,
-                CONF_SOURCE_NAME,
-            ):
+            for key in WEATHER_STRING_KEYS:
                 val = cleaned.get(key)
-                cleaned[key] = str(val).strip() if val else ""
+                if key == CONF_HEAT_WAVE_SYRINGE_TIME:
+                    cleaned[key] = str(val).strip() if val else DEFAULT_HEAT_WAVE_SYRINGE_TIME
+                else:
+                    cleaned[key] = str(val).strip() if val else ""
             return self.async_create_entry(title="", data=cleaned)
 
         suggested = {

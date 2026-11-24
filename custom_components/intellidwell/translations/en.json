@@ -48,11 +48,20 @@
           "soil_moisture_max_pct": "Soil Moisture Saturation Ceiling (%)",
           "heat_wave_enabled": "Enable Heat Wave Runtime Boost",
           "heat_wave_temp_threshold": "Heat Wave High Temp Threshold (F)",
+          "heat_wave_days": "Hot Streak Days Required",
           "heat_wave_boost_pct": "Heat Wave Runtime Boost (+%)",
+          "heat_wave_syringe_enabled": "Enable Afternoon Lawn Cooling Mist",
+          "heat_wave_syringe_temp_threshold": "Cooling Mist Trigger Temp (F)",
+          "heat_wave_syringe_minutes": "Cooling Mist Duration (min)",
+          "heat_wave_syringe_time": "Cooling Mist Window (HH:MM)",
+          "cool_wave_enabled": "Enable Cool Wave Water Saver",
+          "cool_wave_temp_threshold": "Cool Wave High Temp Threshold (F)",
+          "cool_wave_reduce_pct": "Cool Wave Runtime Reduction (-%)",
           "freeze_skip_enabled": "Enable Freeze Skip",
           "freeze_temp_threshold": "Freeze Skip Temp Threshold (F)",
-          "wind_skip_enabled": "Enable Wind Skip (Drip Exempt)",
-          "wind_skip_threshold": "Wind Skip Speed Threshold (mph)"
+          "wind_skip_enabled": "Enable Wind Skip",
+          "wind_skip_threshold": "Wind Skip Speed Threshold (mph)",
+          "wind_protect_drip_exempt": "Keep Drip Beds Exempt in High Wind"
         },
         "data_description": {
           "weather_push_enabled": "When enabled, selected weather and rainfall readings are pushed automatically to the controller.",
@@ -78,11 +87,20 @@
           "soil_moisture_max_pct": "Soil moisture percentage at or above which Heat Wave boosts are vetoed.",
           "heat_wave_enabled": "Scale zone durations upward during consecutive hot days.",
           "heat_wave_temp_threshold": "High temperature threshold (F) for triggering Heat Wave scaling.",
+          "heat_wave_days": "Consecutive hot days required before Heat Wave boost activates.",
           "heat_wave_boost_pct": "Percentage increase applied to scheduled runtimes during a Heat Wave.",
+          "heat_wave_syringe_enabled": "Optional quick afternoon mist to cool grass blades at peak heat without soaking soil (drip beds exempt).",
+          "heat_wave_syringe_temp_threshold": "Outdoor temp (F) needed for Afternoon Cooling Mist.",
+          "heat_wave_syringe_minutes": "Minutes per turf zone for Afternoon Cooling Mist.",
+          "heat_wave_syringe_time": "24-hour local afternoon trigger time (e.g. 14:00).",
+          "cool_wave_enabled": "Scale scheduled durations downward on unseasonably cool days.",
+          "cool_wave_temp_threshold": "Forecast high temp (F) at or below which Cool Wave trimming activates.",
+          "cool_wave_reduce_pct": "Percentage reduction applied during a Cool Wave.",
           "freeze_skip_enabled": "Suspend watering automatically when air temperature or tonights low reaches freezing.",
           "freeze_temp_threshold": "Temperature (F) at or below which scheduled watering is inhibited.",
-          "wind_skip_enabled": "Pause overhead spray turf zones during high wind while keeping drip/garden zones active.",
-          "wind_skip_threshold": "Wind speed (mph) at or above which spray zones skip watering."
+          "wind_skip_enabled": "Pause overhead spray turf zones during high wind.",
+          "wind_skip_threshold": "Wind speed (mph) at or above which spray zones skip watering.",
+          "wind_protect_drip_exempt": "Leave ground-level drip/flower bed zones running during high wind skips."
         }
       }
     }

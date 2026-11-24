@@ -18,7 +18,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from . import IntelliDwellConfigEntry
-from .const import DOMAIN
+from .const import DOMAIN, resolve_weather_options
 from .coordinator import IntelliDwellCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -233,6 +233,7 @@ class IntelliDwellWeatherModifierSensor(
     ) -> None:
         """Initialize the weather modifier sensor."""
         super().__init__(coordinator)
+        self._config_entry = config_entry
         self._attr_unique_id = f"{config_entry.entry_id}_weather_modifier"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, config_entry.entry_id)},
@@ -264,21 +265,31 @@ class IntelliDwellWeatherModifierSensor(
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return detailed weather modifier and pushed weather attributes."""
+        """Return detailed weather modifier, live weather evaluation, and card configuration."""
         data = self.coordinator.data if isinstance(self.coordinator.data, dict) else {}
         mod = data.get("weather_modifier") if isinstance(data.get("weather_modifier"), dict) else {}
         wx = data.get("weather") if isinstance(data.get("weather"), dict) else {}
+        settings = data.get("settings") if isinstance(data.get("settings"), dict) else {}
+        entry = self._config_entry or self.coordinator.config_entry
+        opts = resolve_weather_options(dict(entry.options) if entry else None)
         return {
             "active": bool(mod.get("active", False)),
             "scale_pct": int(mod.get("scale_pct", 100) or 100),
             "inhibit": bool(mod.get("inhibit", False)),
             "freeze_skip": bool(mod.get("freeze_skip", False)),
             "wind_skip": bool(mod.get("wind_skip", False)),
+            "heat_wave_active": bool(mod.get("heat_wave_active", False)),
+            "cool_wave_active": bool(mod.get("cool_wave_active", False)),
             "skip_pins": mod.get("skip_pins", []),
             "zone_scales": mod.get("zone_scales", {}),
             "reason": mod.get("reason"),
+            "rain_delay_days": int(data.get("rain_delay", 0) or 0),
             "soil_moisture_pct": wx.get("soil_moisture_pct"),
             "wind_speed_mph": wx.get("wind_speed_mph"),
             "rain_today_in": wx.get("rain_today_in"),
             "temp": wx.get("temp"),
+            "zone_names": settings.get("zone_names", []),
+            "config_entry_id": entry.entry_id if entry else None,
+            "weather_options": opts,
+            "weather_evaluation": self.coordinator.last_weather_evaluation,
         }

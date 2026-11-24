@@ -19,6 +19,7 @@ Control your irrigation zones, monitor run-time countdowns, configure rain delay
 - ⚡ **Quick Timers & Services**: Run zones for a custom duration (`start_timer`) or stop active runs (`cancel_timer`).
 - 🌧️ **Rain Delay**: Set rain delay suspensions (0 to 5 days) via a native Number entity.
 - 📅 **Lovelace Scheduler Card**: Includes the `intellidwell-scheduler-card` frontend card for managing on-device recurring watering schedules.
+- 🌦️ **Smart Weather Dashboard Card**: Includes the `intellidwell-weather-card` frontend card with climate presets, live 20-minute simulator, Heat Wave boost, Afternoon Cooling Mist, Cool Wave trim, Freeze Skip, Wind Drift Guard, Soil Moisture veto, and Rain Delay sliders — no Settings menu diving required.
 - 🔒 **100% Local Polling**: Talks directly to the controller on your local Wi-Fi network via HTTP REST API (`pyintellidwell`). No cloud dependencies.
 
 ---
@@ -61,6 +62,7 @@ Control your irrigation zones, monitor run-time countdowns, configure rain delay
 | `switch` | `switch.intellidwell_sprinkler_controller_zone_{1..10}` | Individual zone valve control |
 | `sensor` | `sensor.intellidwell_sprinkler_controller_active_zone` | Currently active watering zone name (or `Idle`) |
 | `sensor` | `sensor.intellidwell_sprinkler_controller_watering_time_remaining` | Timestamp when current watering ends (live countdown) |
+| `sensor` | `sensor.intellidwell_sprinkler_controller_weather_modifier` | Active Heat/Cool/Freeze/Wind weather scaling modifier & card configuration |
 | `number` | `number.intellidwell_sprinkler_controller_rain_delay` | Active rain delay days (0–5) |
 
 > [!NOTE]
@@ -169,6 +171,21 @@ To add the card to your dashboard:
 type: custom:intellidwell-scheduler-card
 title: Sprinkler Schedules # Optional
 show_zone_filter: true # Optional
+```
+
+---
+
+## Interactive Smart Weather Card
+
+Configure weather sources (`weather.*`, rainfall, temperature, wind, soil moisture), climate presets, Heat Wave + Cooling Mist, Cool Wave water saver, Freeze/Wind guards, and Rain Delay sliders directly from your Lovelace dashboard using `intellidwell-weather-card`:
+
+1. Edit your Lovelace dashboard and click **Add Card**.
+2. Select **IntelliDwell Smart Weather Card** from the card picker (auto-registered cleanly).
+3. Or add via YAML:
+
+```yaml
+type: custom:intellidwell-weather-card
+title: Smart Weather Control # Optional
 ```
 
 ---
