@@ -23,27 +23,45 @@ from .const import (
     CONF_FORECAST_POP_THRESHOLD,
     CONF_FORECAST_RAIN_48H_SENSOR,
     CONF_FORECAST_RAIN_SENSOR,
+    CONF_FREEZE_SKIP_ENABLED,
+    CONF_FREEZE_TEMP_THRESHOLD,
+    CONF_HEAT_WAVE_BOOST_PCT,
+    CONF_HEAT_WAVE_ENABLED,
+    CONF_HEAT_WAVE_TEMP_THRESHOLD,
     CONF_HEAVY_DELAY_DAYS,
     CONF_HEAVY_RAIN_THRESHOLD,
     CONF_RAIN_48H_SENSOR,
     CONF_RAIN_SENSOR,
     CONF_RAIN_THRESHOLD,
+    CONF_SOIL_MOISTURE_MAX_PCT,
+    CONF_SOIL_MOISTURE_SENSOR,
     CONF_SOURCE_NAME,
     CONF_STOP_ACTIVE_WATERING,
     CONF_TEMP_SENSOR,
     CONF_WEATHER_ENTITY,
     CONF_WEATHER_PUSH_ENABLED,
+    CONF_WIND_SENSOR,
+    CONF_WIND_SKIP_ENABLED,
+    CONF_WIND_SKIP_THRESHOLD,
     DEFAULT_ANTICIPATED_24H_THRESHOLD,
     DEFAULT_ANTICIPATED_48H_THRESHOLD,
     DEFAULT_AUTO_RAIN_DELAY,
     DEFAULT_COLLECTED_48H_THRESHOLD,
     DEFAULT_DELAY_DAYS,
     DEFAULT_FORECAST_POP_THRESHOLD,
+    DEFAULT_FREEZE_SKIP_ENABLED,
+    DEFAULT_FREEZE_TEMP_THRESHOLD,
+    DEFAULT_HEAT_WAVE_BOOST_PCT,
+    DEFAULT_HEAT_WAVE_ENABLED,
+    DEFAULT_HEAT_WAVE_TEMP_THRESHOLD,
     DEFAULT_HEAVY_DELAY_DAYS,
     DEFAULT_HEAVY_RAIN_THRESHOLD,
     DEFAULT_RAIN_THRESHOLD,
+    DEFAULT_SOIL_MOISTURE_MAX_PCT,
     DEFAULT_STOP_ACTIVE_WATERING,
     DEFAULT_WEATHER_PUSH_ENABLED,
+    DEFAULT_WIND_SKIP_ENABLED,
+    DEFAULT_WIND_SKIP_THRESHOLD,
     DOMAIN,
 )
 
@@ -220,6 +238,76 @@ OPTIONS_SCHEMA = vol.Schema(
         vol.Optional(
             CONF_STOP_ACTIVE_WATERING, default=DEFAULT_STOP_ACTIVE_WATERING
         ): selector.BooleanSelector(),
+        vol.Optional(CONF_SOIL_MOISTURE_SENSOR): selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="sensor")
+        ),
+        vol.Optional(CONF_WIND_SENSOR): selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="sensor")
+        ),
+        vol.Optional(
+            CONF_SOIL_MOISTURE_MAX_PCT, default=DEFAULT_SOIL_MOISTURE_MAX_PCT
+        ): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=10,
+                max=95,
+                step=1,
+                unit_of_measurement="%",
+                mode=selector.NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Optional(
+            CONF_HEAT_WAVE_ENABLED, default=DEFAULT_HEAT_WAVE_ENABLED
+        ): selector.BooleanSelector(),
+        vol.Optional(
+            CONF_HEAT_WAVE_TEMP_THRESHOLD, default=DEFAULT_HEAT_WAVE_TEMP_THRESHOLD
+        ): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=70,
+                max=120,
+                step=1,
+                unit_of_measurement="°F",
+                mode=selector.NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Optional(
+            CONF_HEAT_WAVE_BOOST_PCT, default=DEFAULT_HEAT_WAVE_BOOST_PCT
+        ): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=5,
+                max=60,
+                step=5,
+                unit_of_measurement="%",
+                mode=selector.NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Optional(
+            CONF_FREEZE_SKIP_ENABLED, default=DEFAULT_FREEZE_SKIP_ENABLED
+        ): selector.BooleanSelector(),
+        vol.Optional(
+            CONF_FREEZE_TEMP_THRESHOLD, default=DEFAULT_FREEZE_TEMP_THRESHOLD
+        ): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=20,
+                max=45,
+                step=1,
+                unit_of_measurement="°F",
+                mode=selector.NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Optional(
+            CONF_WIND_SKIP_ENABLED, default=DEFAULT_WIND_SKIP_ENABLED
+        ): selector.BooleanSelector(),
+        vol.Optional(
+            CONF_WIND_SKIP_THRESHOLD, default=DEFAULT_WIND_SKIP_THRESHOLD
+        ): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=5,
+                max=60,
+                step=1,
+                unit_of_measurement="mph",
+                mode=selector.NumberSelectorMode.BOX,
+            )
+        ),
     }
 )
 
@@ -244,6 +332,8 @@ class IntelliDwellOptionsFlowHandler(config_entries.OptionsFlow):
                 CONF_WEATHER_ENTITY,
                 CONF_FORECAST_RAIN_SENSOR,
                 CONF_FORECAST_RAIN_48H_SENSOR,
+                CONF_SOIL_MOISTURE_SENSOR,
+                CONF_WIND_SENSOR,
                 CONF_SOURCE_NAME,
             ):
                 val = cleaned.get(key)

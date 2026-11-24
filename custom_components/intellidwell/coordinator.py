@@ -3,6 +3,7 @@
 import asyncio
 from datetime import timedelta
 import logging
+import re
 from typing import Any, override
 
 from pyintellidwell import (
@@ -24,30 +25,52 @@ from .const import (
     CONF_FORECAST_POP_THRESHOLD,
     CONF_FORECAST_RAIN_48H_SENSOR,
     CONF_FORECAST_RAIN_SENSOR,
+    CONF_FREEZE_SKIP_ENABLED,
+    CONF_FREEZE_TEMP_THRESHOLD,
+    CONF_HEAT_WAVE_BOOST_PCT,
+    CONF_HEAT_WAVE_ENABLED,
+    CONF_HEAT_WAVE_TEMP_THRESHOLD,
     CONF_HEAVY_DELAY_DAYS,
     CONF_HEAVY_RAIN_THRESHOLD,
     CONF_RAIN_48H_SENSOR,
     CONF_RAIN_SENSOR,
     CONF_RAIN_THRESHOLD,
+    CONF_SOIL_MOISTURE_MAX_PCT,
+    CONF_SOIL_MOISTURE_SENSOR,
     CONF_SOURCE_NAME,
     CONF_STOP_ACTIVE_WATERING,
     CONF_TEMP_SENSOR,
     CONF_WEATHER_ENTITY,
     CONF_WEATHER_PUSH_ENABLED,
+    CONF_WIND_SENSOR,
+    CONF_WIND_SKIP_ENABLED,
+    CONF_WIND_SKIP_THRESHOLD,
     DEFAULT_ANTICIPATED_24H_THRESHOLD,
     DEFAULT_ANTICIPATED_48H_THRESHOLD,
     DEFAULT_AUTO_RAIN_DELAY,
     DEFAULT_COLLECTED_48H_THRESHOLD,
     DEFAULT_DELAY_DAYS,
     DEFAULT_FORECAST_POP_THRESHOLD,
+    DEFAULT_FREEZE_SKIP_ENABLED,
+    DEFAULT_FREEZE_TEMP_THRESHOLD,
+    DEFAULT_HEAT_WAVE_BOOST_PCT,
+    DEFAULT_HEAT_WAVE_ENABLED,
+    DEFAULT_HEAT_WAVE_TEMP_THRESHOLD,
     DEFAULT_HEAVY_DELAY_DAYS,
     DEFAULT_HEAVY_RAIN_THRESHOLD,
     DEFAULT_RAIN_THRESHOLD,
+    DEFAULT_SOIL_MOISTURE_MAX_PCT,
     DEFAULT_STOP_ACTIVE_WATERING,
     DEFAULT_WEATHER_PUSH_ENABLED,
+    DEFAULT_WIND_SKIP_ENABLED,
+    DEFAULT_WIND_SKIP_THRESHOLD,
 )
 
 _LOGGER = logging.getLogger(__name__)
+_DRIP_ZONE_NAME_RE = re.compile(
+    r"(flower|bed|garden|drip|veggie|vegetable|shrub|rose|bush|planter|tree)",
+    re.IGNORECASE,
+)
 
 
 def _parse_float(value: Any) -> float | None:
@@ -80,6 +103,7 @@ class IntelliDwellCoordinator(DataUpdateCoordinator[dict]):
         self._weather_dirty: bool = True
         self._weather_push_counter: int = 0
         self._last_weather_signature: tuple[Any, ...] | None = None
+        self._last_ha_modifier_active: bool = False
 
         super().__init__(
             hass,
@@ -154,13 +178,30 @@ class IntelliDwellCoordinator(DataUpdateCoordinator[dict]):
                     return str(st.attributes["friendly_name"])
         return "Home Assistant"
 
-    async def _async_get_weather_forecast(
+    async def _async_get_weather_forecast_details(
         self, weather_ent: str
-    ) -> tuple[float, float, int]:
-        """Fetch next-24h QPF (in), next-48h QPF (in), and POP (%) from weather entity."""
+    ) -> dict[str, Any]:
+        """Fetch next-24h/48h QPF, POP %, highs/lows, wind, and humidity from weather entity."""
+        empty: dict[str, Any] = {
+            "ant_24": 0.0,
+            "ant_48": 0.0,
+            "today_pop": 0,
+            "forecast_highs": [],
+            "forecast_lows": [],
+            "wind_mph": None,
+            "humidity": None,
+        }
         if not weather_ent:
-            return 0.0, 0.0, 0
+            return empty
         st_w = self.hass.states.get(weather_ent)
+        wind_mph = _parse_float(st_w.attributes.get("wind_speed")) if st_w else None
+        wind_unit = str(st_w.attributes.get("wind_speed_unit") or "").lower() if st_w else ""
+        if wind_mph is not None and wind_unit in ("km/h", "kph"):
+            wind_mph = round(wind_mph * 0.621371, 1)
+        elif wind_mph is not None and wind_unit == "m/s":
+            wind_mph = round(wind_mph * 2.23694, 1)
+        humidity = _parse_float(st_w.attributes.get("humidity")) if st_w else None
+
         forecast = st_w.attributes.get("forecast") if st_w else None
         if not (isinstance(forecast, (list, tuple)) and forecast) and self.hass.services.has_service(
             "weather", "get_forecasts"
@@ -182,7 +223,7 @@ class IntelliDwellCoordinator(DataUpdateCoordinator[dict]):
                     "Error calling weather.get_forecasts for %s: %s", weather_ent, err
                 )
         if not (isinstance(forecast, (list, tuple)) and forecast and isinstance(forecast[0], dict)):
-            return 0.0, 0.0, 0
+            return {**empty, "wind_mph": wind_mph, "humidity": humidity}
 
         unit = st_w.attributes.get("precipitation_unit") if st_w else None
         scale = (1.0 / 25.4) if unit == "mm" else 1.0
@@ -195,7 +236,107 @@ class IntelliDwellCoordinator(DataUpdateCoordinator[dict]):
             ant_48 = ant_24
         raw_pop = _parse_float(forecast[0].get("precipitation_probability"))
         today_pop = int(raw_pop) if raw_pop is not None else 0
-        return round(ant_24, 4), round(ant_48, 4), today_pop
+
+        highs: list[float] = []
+        lows: list[float] = []
+        for entry in forecast[:7]:
+            if not isinstance(entry, dict):
+                continue
+            hi = _parse_float(entry.get("temperature"))
+            lo = _parse_float(entry.get("templow"))
+            if hi is not None:
+                highs.append(hi)
+            if lo is not None:
+                lows.append(lo)
+
+        return {
+            "ant_24": round(ant_24, 4),
+            "ant_48": round(ant_48, 4),
+            "today_pop": today_pop,
+            "forecast_highs": highs,
+            "forecast_lows": lows,
+            "wind_mph": wind_mph,
+            "humidity": humidity,
+        }
+
+    async def _async_get_weather_forecast(
+        self, weather_ent: str
+    ) -> tuple[float, float, int]:
+        """Fetch next-24h QPF (in), next-48h QPF (in), and POP (%) from weather entity."""
+        details = await self._async_get_weather_forecast_details(weather_ent)
+        return details["ant_24"], details["ant_48"], details["today_pop"]
+
+    def _build_local_weather_modifier(
+        self,
+        opts: dict[str, Any],
+        temp: float | None,
+        forecast_highs: list[float],
+        forecast_lows: list[float],
+        wind_mph: float | None,
+        soil_pct: float | None,
+        delay_days: int,
+    ) -> dict[str, Any]:
+        """Evaluate Freeze Skip, Wind Drift Guard, Heat Wave Boost, and Soil Moisture veto."""
+        freeze_en = bool(opts.get(CONF_FREEZE_SKIP_ENABLED, DEFAULT_FREEZE_SKIP_ENABLED))
+        freeze_th = float(opts.get(CONF_FREEZE_TEMP_THRESHOLD, DEFAULT_FREEZE_TEMP_THRESHOLD))
+        wind_en = bool(opts.get(CONF_WIND_SKIP_ENABLED, DEFAULT_WIND_SKIP_ENABLED))
+        wind_th = float(opts.get(CONF_WIND_SKIP_THRESHOLD, DEFAULT_WIND_SKIP_THRESHOLD))
+        hw_en = bool(opts.get(CONF_HEAT_WAVE_ENABLED, DEFAULT_HEAT_WAVE_ENABLED))
+        hw_th = float(opts.get(CONF_HEAT_WAVE_TEMP_THRESHOLD, DEFAULT_HEAT_WAVE_TEMP_THRESHOLD))
+        hw_boost = int(opts.get(CONF_HEAT_WAVE_BOOST_PCT, DEFAULT_HEAT_WAVE_BOOST_PCT))
+        soil_max = int(opts.get(CONF_SOIL_MOISTURE_MAX_PCT, DEFAULT_SOIL_MOISTURE_MAX_PCT))
+
+        tonight_low = forecast_lows[0] if forecast_lows else None
+        freeze_skip = freeze_en and (
+            (temp is not None and temp <= freeze_th)
+            or (tonight_low is not None and tonight_low <= freeze_th)
+        )
+        wind_skip = wind_en and wind_mph is not None and wind_mph >= wind_th and not freeze_skip
+
+        skip_pins: list[int] = []
+        if wind_skip:
+            znames = self._cached_settings.get("zone_names", []) if isinstance(self._cached_settings, dict) else []
+            for pin in range(10):
+                zname = str(znames[pin]) if pin < len(znames) else ""
+                if not _DRIP_ZONE_NAME_RE.search(zname):
+                    skip_pins.append(pin)
+
+        hot_streak = 0
+        for idx, hi in enumerate(forecast_highs):
+            eff_hi = max(hi, temp) if (idx == 0 and temp is not None) else hi
+            if eff_hi >= hw_th:
+                hot_streak += 1
+            else:
+                break
+        if not forecast_highs and temp is not None and temp >= (hw_th + 5.0):
+            hot_streak = 2
+
+        soil_saturated = soil_pct is not None and soil_pct >= soil_max
+        heat_wave = hw_en and hot_streak >= 2 and not soil_saturated and not freeze_skip and delay_days == 0
+
+        scale_pct = 100 + hw_boost if heat_wave else 100
+        reasons: list[str] = []
+        if freeze_skip:
+            reasons.append(f"Freeze Skip (<= {freeze_th:.0f}F)")
+        elif soil_saturated and hw_en and hot_streak >= 2:
+            reasons.append(f"Heat boost vetoed (soil {soil_pct:.0f}% >= {soil_max}%)")
+        elif heat_wave:
+            reasons.append(f"Heat Wave +{hw_boost}% (>= {hw_th:.0f}F)")
+        if wind_skip:
+            reasons.append(f"Wind Skip ({wind_mph:.0f} mph)")
+
+        active = bool(freeze_skip or wind_skip or scale_pct != 100)
+        return {
+            "active": active,
+            "scale_pct": scale_pct,
+            "skip_pins": skip_pins,
+            "inhibit": bool(freeze_skip),
+            "freeze_skip": bool(freeze_skip),
+            "wind_skip": bool(wind_skip),
+            "heat_wave_active": bool(heat_wave),
+            "reason": " · ".join(reasons) or "Normal",
+            "ttl_seconds": 86400 if active else 0,
+        }
 
     def _calculate_auto_rain_delay(
         self,
@@ -257,6 +398,8 @@ class IntelliDwellCoordinator(DataUpdateCoordinator[dict]):
         weather_ent = (opts.get(CONF_WEATHER_ENTITY) or "").strip()
         forecast_rain_ent = (opts.get(CONF_FORECAST_RAIN_SENSOR) or "").strip()
         forecast_rain_48h_ent = (opts.get(CONF_FORECAST_RAIN_48H_SENSOR) or "").strip()
+        soil_ent = (opts.get(CONF_SOIL_MOISTURE_SENSOR) or "").strip()
+        wind_ent = (opts.get(CONF_WIND_SENSOR) or "").strip()
         if not (
             rain_ent
             or rain_48h_ent
@@ -264,6 +407,8 @@ class IntelliDwellCoordinator(DataUpdateCoordinator[dict]):
             or weather_ent
             or forecast_rain_ent
             or forecast_rain_48h_ent
+            or soil_ent
+            or wind_ent
         ):
             return
 
@@ -278,6 +423,8 @@ class IntelliDwellCoordinator(DataUpdateCoordinator[dict]):
                     or weather_ent
                     or forecast_rain_ent
                     or forecast_rain_48h_ent
+                    or soil_ent
+                    or wind_ent
                 ):
                     return
                 rain_today = 0.0
@@ -291,7 +438,10 @@ class IntelliDwellCoordinator(DataUpdateCoordinator[dict]):
             if parsed_48 is not None:
                 col_48 = parsed_48
 
-        ant_24, ant_48, today_pop = await self._async_get_weather_forecast(weather_ent)
+        wx_details = await self._async_get_weather_forecast_details(weather_ent)
+        ant_24 = wx_details["ant_24"]
+        ant_48 = wx_details["ant_48"]
+        today_pop = wx_details["today_pop"]
         if forecast_rain_ent:
             st_f24 = self.hass.states.get(forecast_rain_ent)
             parsed_f24 = _parse_float(st_f24.state) if st_f24 else None
@@ -312,16 +462,45 @@ class IntelliDwellCoordinator(DataUpdateCoordinator[dict]):
             st_w = self.hass.states.get(weather_ent)
             temp = _parse_float(st_w.attributes.get("temperature")) if st_w else None
 
+        soil_pct: float | None = None
+        if soil_ent:
+            st_soil = self.hass.states.get(soil_ent)
+            soil_pct = _parse_float(st_soil.state) if st_soil else None
+
+        wind_mph: float | None = wx_details.get("wind_mph")
+        if wind_ent:
+            st_wind = self.hass.states.get(wind_ent)
+            parsed_wind = _parse_float(st_wind.state) if st_wind else None
+            if parsed_wind is not None:
+                wind_mph = parsed_wind
+
+        humidity: float | None = wx_details.get("humidity")
         source = self._resolve_weather_source(opts, rain_ent, weather_ent, forecast_rain_ent)
         has_forecast = bool(weather_ent or forecast_rain_ent)
         delay_days = self._calculate_auto_rain_delay(
             opts, rain_today, col_48, ant_24, ant_48, today_pop, has_forecast
         )
+        modifier = self._build_local_weather_modifier(
+            opts,
+            temp,
+            wx_details.get("forecast_highs") or [],
+            wx_details.get("forecast_lows") or [],
+            wind_mph,
+            soil_pct,
+            delay_days,
+        )
+        include_modifier = bool(modifier.get("active") or self._last_ha_modifier_active)
         sig = (
             round(rain_today, 2),
             round(temp, 1) if temp is not None else None,
             source,
             delay_days,
+            round(soil_pct, 1) if soil_pct is not None else None,
+            round(wind_mph, 1) if wind_mph is not None else None,
+            modifier.get("active"),
+            modifier.get("scale_pct"),
+            tuple(modifier.get("skip_pins") or []),
+            modifier.get("inhibit"),
         )
 
         if (
@@ -333,7 +512,13 @@ class IntelliDwellCoordinator(DataUpdateCoordinator[dict]):
             return
 
         try:
-            if hasattr(self.client, "push_weather"):
+            has_extra = (
+                soil_pct is not None
+                or wind_mph is not None
+                or humidity is not None
+                or include_modifier
+            )
+            if hasattr(self.client, "push_weather") and not has_extra:
                 await self.client.push_weather(
                     rain_today_in=rain_today,
                     source=source,
@@ -348,7 +533,17 @@ class IntelliDwellCoordinator(DataUpdateCoordinator[dict]):
                 }
                 if temp is not None:
                     payload["temp"] = temp
+                if soil_pct is not None:
+                    payload["soil_moisture_pct"] = round(soil_pct, 1)
+                if wind_mph is not None:
+                    payload["wind_speed_mph"] = round(wind_mph, 1)
+                if humidity is not None:
+                    payload["humidity"] = round(humidity, 1)
+                if include_modifier:
+                    payload["weather_modifier"] = modifier
                 await self.client._request("POST", "api/weather", json=payload)
+
+            self._last_ha_modifier_active = bool(modifier.get("active"))
 
             self._last_weather_signature = sig
             self._weather_dirty = False

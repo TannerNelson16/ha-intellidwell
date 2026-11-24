@@ -22,8 +22,8 @@
   "options": {
     "step": {
       "init": {
-        "title": "Weather Push & Automatic Rain Delay",
-        "description": "Select the Home Assistant weather/rain entities to push directly to the sprinkler controller over LAN and configure automatic rain-delay thresholds.",
+        "title": "Weather Push & Smart Weather Automation",
+        "description": "Select Home Assistant weather, wind, and soil entities to push to the controller over LAN and configure automatic rain, heat, freeze, and wind rules.",
         "data": {
           "weather_push_enabled": "Enable Automatic Weather Push",
           "rain_sensor": "Rain Sensor / Daily Precipitation Entity",
@@ -42,7 +42,17 @@
           "heavy_rain_threshold": "Heavy Rain Threshold (24h Combined Collected + Anticipated)",
           "heavy_delay_days": "Heavy Rain Delay Duration",
           "forecast_pop_threshold": "Forecast Rain Probability Threshold",
-          "stop_active_watering": "Stop Active Watering Immediately on Rain"
+          "stop_active_watering": "Stop Active Watering Immediately on Rain",
+          "soil_moisture_sensor": "Soil Moisture Sensor (Optional)",
+          "wind_sensor": "Wind Speed Sensor in mph (Optional)",
+          "soil_moisture_max_pct": "Soil Moisture Saturation Ceiling (%)",
+          "heat_wave_enabled": "Enable Heat Wave Runtime Boost",
+          "heat_wave_temp_threshold": "Heat Wave High Temp Threshold (F)",
+          "heat_wave_boost_pct": "Heat Wave Runtime Boost (+%)",
+          "freeze_skip_enabled": "Enable Freeze Skip",
+          "freeze_temp_threshold": "Freeze Skip Temp Threshold (F)",
+          "wind_skip_enabled": "Enable Wind Skip (Drip Exempt)",
+          "wind_skip_threshold": "Wind Skip Speed Threshold (mph)"
         },
         "data_description": {
           "weather_push_enabled": "When enabled, selected weather and rainfall readings are pushed automatically to the controller.",
@@ -62,7 +72,17 @@
           "heavy_rain_threshold": "Combined 24h collected + anticipated rainfall total (inches) that triggers the heavy-rain delay duration.",
           "heavy_delay_days": "Number of days to suspend watering when the heavy-rain combined total threshold is reached.",
           "forecast_pop_threshold": "Minimum next-24h precipitation probability (%) from the selected weather entity to trigger a rain delay.",
-          "stop_active_watering": "Cancel active zone timers immediately if today's rainfall reaches or exceeds the standard rain threshold."
+          "stop_active_watering": "Cancel active zone timers immediately if today's rainfall reaches or exceeds the standard rain threshold.",
+          "soil_moisture_sensor": "Optional volumetric soil moisture sensor (%) pushed to controller and Cloud to veto Heat Wave boosts when soil is already wet.",
+          "wind_sensor": "Optional wind speed sensor in mph (overrides forecast weather entity wind speed).",
+          "soil_moisture_max_pct": "Soil moisture percentage at or above which Heat Wave boosts are vetoed.",
+          "heat_wave_enabled": "Scale zone durations upward during consecutive hot days.",
+          "heat_wave_temp_threshold": "High temperature threshold (F) for triggering Heat Wave scaling.",
+          "heat_wave_boost_pct": "Percentage increase applied to scheduled runtimes during a Heat Wave.",
+          "freeze_skip_enabled": "Suspend watering automatically when air temperature or tonights low reaches freezing.",
+          "freeze_temp_threshold": "Temperature (F) at or below which scheduled watering is inhibited.",
+          "wind_skip_enabled": "Pause overhead spray turf zones during high wind while keeping drip/garden zones active.",
+          "wind_skip_threshold": "Wind speed (mph) at or above which spray zones skip watering."
         }
       }
     }

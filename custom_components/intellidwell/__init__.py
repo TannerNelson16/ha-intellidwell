@@ -26,8 +26,10 @@ from .const import (
     CONF_FORECAST_RAIN_SENSOR,
     CONF_RAIN_48H_SENSOR,
     CONF_RAIN_SENSOR,
+    CONF_SOIL_MOISTURE_SENSOR,
     CONF_TEMP_SENSOR,
     CONF_WEATHER_ENTITY,
+    CONF_WIND_SENSOR,
     DOMAIN,
 )
 from .coordinator import IntelliDwellCoordinator
@@ -204,6 +206,8 @@ async def async_setup_entry(
             CONF_WEATHER_ENTITY,
             CONF_FORECAST_RAIN_SENSOR,
             CONF_FORECAST_RAIN_48H_SENSOR,
+            CONF_SOIL_MOISTURE_SENSOR,
+            CONF_WIND_SENSOR,
         ):
             ent_id = cur_entry.options.get(opt_key)
             if isinstance(ent_id, str) and ent_id.strip() and ent_id.strip() not in tracked:
@@ -386,8 +390,11 @@ async def async_setup_entry(
                 temp = None
         else:
             temp = None
+        soil_pct = call.data.get("soil_moisture_pct")
+        wind_mph = call.data.get("wind_speed_mph")
         try:
-            if hasattr(coord.client, "push_weather"):
+            extra_fields = soil_pct is not None or wind_mph is not None
+            if hasattr(coord.client, "push_weather") and not extra_fields:
                 await coord.client.push_weather(
                     rain_today_in=rain_today,
                     source=source,
@@ -402,6 +409,10 @@ async def async_setup_entry(
                 }
                 if temp is not None:
                     payload["temp"] = temp
+                if soil_pct is not None:
+                    payload["soil_moisture_pct"] = float(soil_pct)
+                if wind_mph is not None:
+                    payload["wind_speed_mph"] = float(wind_mph)
                 await coord.client._request("POST", "api/weather", json=payload)
         except Exception as err:
             raise HomeAssistantError(f"Failed to push weather data: {err}") from err

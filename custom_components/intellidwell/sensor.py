@@ -37,6 +37,7 @@ async def async_setup_entry(
     entities: list[SensorEntity] = [
         IntelliDwellActiveZoneSensor(coordinator, config_entry),
         IntelliDwellTimerRemainingSensor(coordinator, config_entry),
+        IntelliDwellWeatherModifierSensor(coordinator, config_entry),
     ]
     async_add_entities(entities)
 
@@ -213,4 +214,71 @@ class IntelliDwellTimerRemainingSensor(
             "remaining_seconds": remaining,
             "remaining_minutes": round(remaining / 60, 1) if remaining > 0 else 0,
             "timer_active": remaining > 0,
+        }
+
+
+class IntelliDwellWeatherModifierSensor(
+    CoordinatorEntity[IntelliDwellCoordinator], SensorEntity
+):
+    """Sensor reporting active weather intelligence scaling or skips."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:weather-partly-rainy"
+    _attr_name = "Weather Modifier"
+
+    def __init__(
+        self,
+        coordinator: IntelliDwellCoordinator,
+        config_entry: IntelliDwellConfigEntry,
+    ) -> None:
+        """Initialize the weather modifier sensor."""
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{config_entry.entry_id}_weather_modifier"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, config_entry.entry_id)},
+            name="IntelliDwell Sprinkler Controller",
+            manufacturer="IntelliDwell",
+            model="Sprinkler Controller V2",
+            configuration_url=f"http://{coordinator.client.host}/scheduler",
+        )
+
+    @property
+    @override
+    def native_value(self) -> str:
+        """Return summary state of any active controller weather modifier."""
+        if not isinstance(self.coordinator.data, dict):
+            return "Normal (100%)"
+        mod = self.coordinator.data.get("weather_modifier")
+        if not isinstance(mod, dict) or not mod.get("active"):
+            return "Normal (100%)"
+        if mod.get("freeze_skip") or mod.get("inhibit"):
+            return "Freeze Skip"
+        if mod.get("wind_skip"):
+            return "Wind Skip"
+        scale = int(mod.get("scale_pct", 100) or 100)
+        if scale > 100:
+            return f"Heat Wave (+{scale - 100}%)"
+        if scale < 100:
+            return f"Cool Wave ({scale - 100}%)"
+        return str(mod.get("reason") or "Active")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return detailed weather modifier and pushed weather attributes."""
+        data = self.coordinator.data if isinstance(self.coordinator.data, dict) else {}
+        mod = data.get("weather_modifier") if isinstance(data.get("weather_modifier"), dict) else {}
+        wx = data.get("weather") if isinstance(data.get("weather"), dict) else {}
+        return {
+            "active": bool(mod.get("active", False)),
+            "scale_pct": int(mod.get("scale_pct", 100) or 100),
+            "inhibit": bool(mod.get("inhibit", False)),
+            "freeze_skip": bool(mod.get("freeze_skip", False)),
+            "wind_skip": bool(mod.get("wind_skip", False)),
+            "skip_pins": mod.get("skip_pins", []),
+            "zone_scales": mod.get("zone_scales", {}),
+            "reason": mod.get("reason"),
+            "soil_moisture_pct": wx.get("soil_moisture_pct"),
+            "wind_speed_mph": wx.get("wind_speed_mph"),
+            "rain_today_in": wx.get("rain_today_in"),
+            "temp": wx.get("temp"),
         }

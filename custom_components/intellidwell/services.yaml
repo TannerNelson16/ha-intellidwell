@@ -284,3 +284,23 @@ push_weather:
           min: -50
           max: 150
           mode: box
+    soil_moisture_pct:
+      name: Soil Moisture (%)
+      description: Optional local volumetric soil moisture percentage (vetoes heat boost above threshold).
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+          mode: box
+    wind_speed_mph:
+      name: Wind Speed (mph)
+      description: Optional local wind speed in mph.
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 120
+          step: 0.5
+          mode: box
