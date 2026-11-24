@@ -248,7 +248,7 @@ class IntelliDwellWeatherCard extends HTMLElement {
 
   _getWeatherModifierEntity() {
     if (!this._hass || !this._hass.states) return null;
-    if (this._config.entity && this._hass.states[this._config.entity]) {
+    if (this._config && this._config.entity && this._hass.states[this._config.entity]) {
       return this._hass.states[this._config.entity];
     }
     for (const [entityId, stateObj] of Object.entries(this._hass.states)) {
@@ -685,7 +685,7 @@ class IntelliDwellWeatherCard extends HTMLElement {
         <div class="header">
           <div class="title-wrap">
             <span>🌦️</span>
-            <span>${wxEscapeHtml(this._config.title || "Smart Weather Control")}</span>
+            <span>${wxEscapeHtml((this._config && this._config.title) || "Smart Weather Control")}</span>
           </div>
           <span class="status-pill" id="wx-status-pill" style="color: ${badgeColor};">
             ${rainDelayDays > 0 ? `Rain Delay ${rainDelayDays}d` : wxEscapeHtml(stateStr)}
@@ -933,6 +933,12 @@ class IntelliDwellWeatherCard extends HTMLElement {
 }
 
 class IntelliDwellWeatherCardEditor extends HTMLElement {
+  constructor() {
+    super();
+    this._config = { title: "Smart Weather Control", entity: "" };
+    this._hass = null;
+  }
+
   setConfig(config) {
     this._config = Object.assign({ title: "Smart Weather Control", entity: "" }, config || {});
     this.render();
@@ -940,21 +946,26 @@ class IntelliDwellWeatherCardEditor extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+    const active = typeof document !== "undefined" ? document.activeElement : null;
+    if (active && this.contains && this.contains(active) && (active.id === "wxTitle" || active.id === "wxEntity")) {
+      return;
+    }
     this.render();
   }
 
   render() {
+    const cfg = this._config || { title: "Smart Weather Control", entity: "" };
     const states = (this._hass && this._hass.states) || {};
     const candidates = Object.entries(states)
       .filter(([eid, st]) => eid.startsWith("sensor.") && (eid.includes("weather_modifier") || (st.attributes && st.attributes.weather_options !== undefined)))
-      .map(([eid, st]) => `<option value="${wxEscapeHtml(eid)}"${this._config.entity === eid ? " selected" : ""}>${wxEscapeHtml((st.attributes && st.attributes.friendly_name) || eid)} (${wxEscapeHtml(eid)})</option>`)
+      .map(([eid, st]) => `<option value="${wxEscapeHtml(eid)}"${cfg.entity === eid ? " selected" : ""}>${wxEscapeHtml((st.attributes && st.attributes.friendly_name) || eid)} (${wxEscapeHtml(eid)})</option>`)
       .join("");
 
     this.innerHTML = `
       <div style="display:flex;flex-direction:column;gap:12px;padding:10px 0;font-family:inherit;">
         <div>
           <label style="display:block;font-weight:600;font-size:0.9rem;margin-bottom:4px;">Card Title</label>
-          <input type="text" id="wxTitle" value="${wxEscapeHtml(this._config.title || "Smart Weather Control")}"
+          <input type="text" id="wxTitle" value="${wxEscapeHtml(cfg.title || "Smart Weather Control")}"
             style="width:100%;padding:9px;border-radius:8px;border:1px solid var(--divider-color, rgba(255,255,255,0.2));background:rgba(255,255,255,0.05);color:inherit;box-sizing:border-box;">
         </div>
         <div>
@@ -970,7 +981,7 @@ class IntelliDwellWeatherCardEditor extends HTMLElement {
     const titleEl = this.querySelector("#wxTitle");
     const entEl = this.querySelector("#wxEntity");
     const emit = () => {
-      const next = { ...this._config, title: titleEl ? titleEl.value : "Smart Weather Control" };
+      const next = { ...(this._config || {}), title: titleEl ? titleEl.value : "Smart Weather Control" };
       if (entEl && entEl.value) next.entity = entEl.value;
       else delete next.entity;
       this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: next } }));
@@ -992,7 +1003,7 @@ window.customCards.push({
   documentationURL: "https://github.com/TannerNelson16/ha-intellidwell",
 });
 console.info(
-  "%c INTELLIDWELL-WEATHER-CARD %c v1.4.0 Loaded ",
+  "%c INTELLIDWELL-WEATHER-CARD %c v1.4.1 Loaded ",
   "color: white; background: #0284c7; font-weight: 700;",
   "color: #0284c7; background: #0f172a; font-weight: 700;"
 );

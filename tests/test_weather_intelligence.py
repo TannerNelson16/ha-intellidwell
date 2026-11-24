@@ -398,6 +398,17 @@ if (!card.shadowRoot.innerHTML.includes("KEEP_USER_SLIDER")) {
   throw new Error("Dirty slider state was clobbered by background hass poll");
 }
 
+// Verify hass assigned BEFORE setConfig does not throw in card or editor
+const EditorCls = defined["intellidwell-weather-card-editor"];
+if (!EditorCls) throw new Error("Missing intellidwell-weather-card-editor");
+const ed = new EditorCls();
+ed.hass = card._hass;
+ed.setConfig({ type: "custom:intellidwell-weather-card" });
+
+const bareCard = new CardCls();
+bareCard._config = undefined;
+bareCard.hass = card._hass;
+
 console.log("WX_CARD_TESTS_PASSED");
 """
     res = subprocess.run(

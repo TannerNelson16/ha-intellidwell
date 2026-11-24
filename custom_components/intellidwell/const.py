@@ -3,7 +3,7 @@
 from typing import Any
 
 DOMAIN = "intellidwell"
-CARD_VERSION = "1.4.0"
+CARD_VERSION = "1.4.1"
 
 CONF_WEATHER_PUSH_ENABLED = "weather_push_enabled"
 CONF_RAIN_SENSOR = "rain_sensor"
